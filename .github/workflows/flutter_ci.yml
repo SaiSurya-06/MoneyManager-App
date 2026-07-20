@@ -94,9 +94,18 @@ jobs:
           echo "flutter.versionCode=${VERSION_CODE}" >> android/local.properties
           echo "flutter.versionName=${VERSION}"      >> android/local.properties
 
+      # ── Restore Keystore & key.properties ────────────────────────
+      - name: 🔑 Decode Keystore & Restore key.properties
+        run: |
+          base64 -d android/keystore_base64.txt > android/app/money_manager.keystore
+          cat <<EOF > android/key.properties
+          storePassword=MoneyManager2026
+          keyPassword=MoneyManager2026
+          keyAlias=money_manager
+          storeFile=money_manager.keystore
+          EOF
+
       # ── Build exactly ONE release APK ────────────────────────────
-      # Keystore and key.properties are committed in the repo.
-      # No secrets needed.
       - name: 🔨 Build release APK
         run: flutter build apk --release --android-skip-build-dependency-validation
 
