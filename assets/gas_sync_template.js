@@ -2,7 +2,15 @@
 // Deploy as: Web App | Execute as: Me | Who has access: Anyone
 
 function doGet(e) {
-  var params = e.parameter;
+  return handleRequest(e);
+}
+
+function doPost(e) {
+  return handleRequest(e);
+}
+
+function handleRequest(e) {
+  var params = (e && e.parameter) ? e.parameter : {};
   var action = params.action;
   
   if (action === "test") {
@@ -24,7 +32,7 @@ function doGet(e) {
     var key = params.key;
     var index = parseInt(params.index);
     var total = parseInt(params.total);
-    var val = params.val;
+    var val = params.val || (e.postData ? e.postData.contents : "");
     
     // Store chunk
     var chunkKey = key + "_chunk_" + index;

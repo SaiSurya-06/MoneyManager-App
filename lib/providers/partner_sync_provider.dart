@@ -422,8 +422,8 @@ class PartnerSyncNotifier extends StateNotifier<PartnerSyncState> {
     await _saveStateLocally();
     _startSyncTimer();
     
-    // Perform initial upload
-    syncNow();
+    // Perform initial upload and await completion so server has host data ready
+    await syncNow();
 
     return inviteCode;
   }
@@ -788,7 +788,7 @@ class PartnerSyncNotifier extends StateNotifier<PartnerSyncState> {
 
   Future<void> _uploadData(String payload) async {
     final key = '${state.roomCode}__${state.mySlot}_data';
-    final chunks = _splitIntoChunks(payload, 4000);
+    final chunks = _splitIntoChunks(payload, 3500);
     final total = chunks.length;
 
     final client = HttpClient();
@@ -801,11 +801,10 @@ class PartnerSyncNotifier extends StateNotifier<PartnerSyncState> {
         queryParams['key'] = key;
         queryParams['index'] = '$i';
         queryParams['total'] = '$total';
-        queryParams['val'] = chunk;
         final uri = baseUri.replace(queryParameters: queryParams);
         
         state = state.copyWith(
-          syncProgress: (i / total) * 0.5, // Upload takes 0% to 50%
+          syncProgress: (i / total) * 0.5,
           syncStatusMessage: 'Uploading: Chunk ${i + 1} of $total...',
         );
 
@@ -815,21 +814,41 @@ class PartnerSyncNotifier extends StateNotifier<PartnerSyncState> {
         while (!success && attempts < 3) {
           try {
             attempts++;
-            final request = await client.getUrl(uri);
+            // Try POST first for payload body safety, fallback to GET if script requires query params
+            final request = await client.postUrl(uri);
+            request.headers.contentType = ContentType('text', 'plain', charset: 'utf-8');
+            request.write(chunk);
             final response = await request.close();
             if (response.statusCode == 200) {
               final responseBody = await response.transform(utf8.decoder).join();
-              if (responseBody.contains('chunk_received') || responseBody.contains('assembled')) {
+              if (responseBody.contains('chunk_received') || responseBody.contains('assembled') || responseBody == 'ok') {
                 success = true;
                 break;
               } else {
-                lastError = 'Server did not acknowledge chunk: $responseBody';
+                lastError = 'Server response: $responseBody';
               }
             } else {
               lastError = 'HTTP status ${response.statusCode}';
             }
           } catch (e) {
-            lastError = e.toString();
+            // Fallback GET attempt
+            try {
+              final getUri = baseUri.replace(queryParameters: {
+                ...queryParams,
+                'val': chunk,
+              });
+              final getReq = await client.getUrl(getUri);
+              final getResp = await getReq.close();
+              if (getResp.statusCode == 200) {
+                final getBody = await getResp.transform(utf8.decoder).join();
+                if (getBody.contains('chunk_received') || getBody.contains('assembled')) {
+                  success = true;
+                  break;
+                }
+              }
+            } catch (getErr) {
+              lastError = getErr.toString();
+            }
           }
           if (!success && attempts < 3) {
             await Future.delayed(Duration(seconds: attempts * 2));

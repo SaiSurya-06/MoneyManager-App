@@ -216,25 +216,38 @@ class AuthNotifier extends StateNotifier<AuthState> {
     }
 
     final saltKey = '${AppConstants.securePinSaltKey}_${profile.id}';
-    String? salt = await _secureStorage.read(key: saltKey);
+    String? salt;
+    try {
+      salt = await _secureStorage.read(key: saltKey);
+    } catch (e) {
+      AppLogger.w('Secure storage read error', error: e, tag: 'AuthProvider');
+    }
 
     bool isValid = false;
 
-    if (salt != null) {
-      final inputHash = _hashPinWithSalt(pin, salt);
-      isValid = (profile.pinHash == inputHash);
-    } else {
-      // Legacy unsalted hash fallback + auto migration
+    if (salt != null && salt.isNotEmpty) {
+      final saltedHash = _hashPinWithSalt(pin, salt);
+      if (profile.pinHash == saltedHash) {
+        isValid = true;
+      }
+    }
+
+    // Always fallback to checking legacy unsalted hash if salted hash didn't match
+    if (!isValid) {
       final legacyHash = _hashLegacyPin(pin);
       if (profile.pinHash == legacyHash) {
         isValid = true;
         // Seamlessly migrate profile to salted hash
-        final newSalt = _generateSalt();
-        final newHash = _hashPinWithSalt(pin, newSalt);
-        await _secureStorage.write(key: saltKey, value: newSalt);
-        final updatedProfile = profile.copyWith(pinHash: newHash);
-        await _profileDao.updateProfile(updatedProfile);
-        AppLogger.i('Migrated profile PIN to salted hash', tag: 'AuthProvider');
+        try {
+          final newSalt = _generateSalt();
+          final newHash = _hashPinWithSalt(pin, newSalt);
+          await _secureStorage.write(key: saltKey, value: newSalt);
+          final updatedProfile = profile.copyWith(pinHash: newHash);
+          await _profileDao.updateProfile(updatedProfile);
+          AppLogger.i('Migrated profile PIN to salted hash', tag: 'AuthProvider');
+        } catch (e) {
+          AppLogger.w('Failed to save migrated PIN salt', error: e, tag: 'AuthProvider');
+        }
       }
     }
 
