@@ -16,6 +16,7 @@ import 'accounts_provider.dart';
 import 'budgets_provider.dart';
 import '../core/notifications/notification_service.dart';
 import '../core/analytics/recurrence_engine.dart';
+import '../core/utils/app_logger.dart';
 
 class TransactionsState {
   final List<Transaction> transactions;
@@ -290,7 +291,9 @@ class TransactionsNotifier extends StateNotifier<TransactionsState> {
               }
             }
           }
-        } catch (_) {}
+        } catch (e) {
+          AppLogger.w('Category limit alert check error', error: e, tag: 'TransactionsProvider');
+        }
       }
 
       // Check budget threshold alerts immediately
@@ -389,7 +392,9 @@ class TransactionsNotifier extends StateNotifier<TransactionsState> {
               }
             }
           }
-        } catch (_) {}
+        } catch (e) {
+          AppLogger.w('Category limit alert check error', error: e, tag: 'TransactionsProvider');
+        }
       }
 
       await _ref.read(budgetsProvider.notifier).checkBudgetThreshold(

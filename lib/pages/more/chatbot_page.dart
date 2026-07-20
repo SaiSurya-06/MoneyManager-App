@@ -22,6 +22,7 @@ import '../../widgets/common/glassmorphism_card.dart';
 import '../../widgets/common/premium_background.dart';
 import '../../core/utils/currency_formatter.dart';
 import '../../providers/auth_provider.dart';
+import '../../core/utils/app_logger.dart';
 
 class ChatMessage {
   final String text; // Conversational fallback or user text
@@ -140,7 +141,9 @@ class _ChatbotPageState extends ConsumerState<ChatbotPage> {
               displayText = summaryComp.data['text']?.toString() ?? "";
             }
           }
-        } catch (_) {}
+        } catch (e) {
+          AppLogger.w('Failed parsing chatbot UI components', error: e, tag: 'ChatbotPage');
+        }
 
         Widget? chartWidget;
         try {
@@ -198,7 +201,9 @@ class _ChatbotPageState extends ConsumerState<ChatbotPage> {
               );
             }
           }
-        } catch (_) {}
+        } catch (e) {
+          AppLogger.w('Failed rendering chatbot chart widget', error: e, tag: 'ChatbotPage');
+        }
 
         loaded.add(ChatMessage(
           text: displayText,

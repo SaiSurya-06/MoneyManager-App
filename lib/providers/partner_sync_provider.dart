@@ -18,6 +18,7 @@ import 'auth_provider.dart';
 import '../core/sync/sync_client.dart';
 import '../core/database/daos/account_dao.dart';
 import '../core/database/daos/transaction_dao.dart';
+import '../core/utils/app_logger.dart';
 
 class PartnerTransaction {
   final String title;
@@ -72,15 +73,31 @@ class PartnerTransaction {
       rec = r == 'n' ? 'none' : (r == 'd' ? 'daily' : (r == 'w' ? 'weekly' : (r == 'm' ? 'monthly' : (r == 'y' ? 'yearly' : 'none'))));
     }
 
+    double rawAmount = (map['a'] as num?)?.toDouble() ?? (map['amount'] as num?)?.toDouble() ?? 0.0;
+    // Validate amount bounds
+    if (rawAmount.isNaN || rawAmount.isInfinite || rawAmount < 0) {
+      rawAmount = 0.0;
+    }
+
+    DateTime parsedDate = DateTime.now();
+    try {
+      final dateStr = map['d'] as String? ?? map['date'] as String?;
+      if (dateStr != null && dateStr.isNotEmpty) {
+        parsedDate = DateTime.parse(dateStr);
+      }
+    } catch (_) {
+      parsedDate = DateTime.now();
+    }
+
     return PartnerTransaction(
-      title: map['t'] as String? ?? map['title'] as String? ?? '',
-      amount: (map['a'] as num?)?.toDouble() ?? (map['amount'] as num?)?.toDouble() ?? 0.0,
+      title: (map['t'] as String? ?? map['title'] as String? ?? '').trim(),
+      amount: rawAmount,
       type: txType,
-      date: DateTime.parse(map['d'] as String? ?? map['date'] as String? ?? DateTime.now().toIso8601String()),
+      date: parsedDate,
       note: map['n'] as String? ?? map['note'] as String?,
       recurrence: rec,
-      accountName: map['ac'] as String? ?? map['accountName'] as String? ?? 'Account',
-      categoryName: map['c'] as String? ?? map['categoryName'] as String? ?? 'Other',
+      accountName: (map['ac'] as String? ?? map['accountName'] as String? ?? 'Account').trim(),
+      categoryName: (map['c'] as String? ?? map['categoryName'] as String? ?? 'Other').trim(),
       categoryIcon: map['categoryIcon'] as String? ?? 'category',
       categoryColor: map['categoryColor'] as String? ?? '757575',
     );
@@ -326,7 +343,7 @@ class PartnerSyncNotifier extends StateNotifier<PartnerSyncState> {
 
   String _generateRoomCode() {
     const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789';
-    final rnd = Random();
+    final rnd = Random.secure();
     return List.generate(6, (index) => chars[rnd.nextInt(chars.length)]).join();
   }
 
@@ -335,6 +352,12 @@ class PartnerSyncNotifier extends StateNotifier<PartnerSyncState> {
     try {
       final cleanedUrl = url.trim();
       if (cleanedUrl.isEmpty) return false;
+
+      // Enforce HTTPS protocol
+      if (!cleanedUrl.toLowerCase().startsWith('https://')) {
+        AppLogger.w('Rejected unencrypted HTTP connection attempt', tag: 'PartnerSync');
+        return false;
+      }
 
       final baseUri = Uri.parse(cleanedUrl);
       final queryParams = Map<String, dynamic>.from(baseUri.queryParameters);
@@ -347,8 +370,8 @@ class PartnerSyncNotifier extends StateNotifier<PartnerSyncState> {
         return responseBody.trim() == 'ok';
       }
       return false;
-    } catch (e) {
-      debugPrint('Test connection error: $e');
+    } catch (e, stack) {
+      AppLogger.e('Test connection error', error: e, stackTrace: stack, tag: 'PartnerSync');
       return false;
     } finally {
       client.close();

@@ -10,6 +10,7 @@ import 'package:file_picker/file_picker.dart';
 import 'package:csv/csv.dart';
 import '../database/database.dart';
 import '../database/daos/category_dao.dart';
+import '../utils/app_logger.dart';
 
 class GoogleAuthClient extends http.BaseClient {
   final Map<String, String> _headers;
@@ -52,7 +53,8 @@ class BackupService {
     try {
       _currentUser = await _googleSignIn.signInSilently();
       return _currentUser != null;
-    } catch (_) {
+    } catch (e) {
+      AppLogger.w('Silent Google sign-in failed', error: e, tag: 'BackupService');
       return false;
     }
   }
@@ -62,7 +64,8 @@ class BackupService {
       _currentUser = await _googleSignIn.signIn();
       isSimulatedMode = false;
       return _currentUser != null;
-    } catch (_) {
+    } catch (e, stack) {
+      AppLogger.e('Google sign-in error', error: e, stackTrace: stack, tag: 'BackupService');
       return false;
     }
   }
@@ -74,7 +77,9 @@ class BackupService {
     }
     try {
       _currentUser = await _googleSignIn.signOut();
-    } catch (_) {}
+    } catch (e) {
+      AppLogger.w('Google sign-out error', error: e, tag: 'BackupService');
+    }
   }
 
   // --- General Google Drive File Upload & Download Helpers ---

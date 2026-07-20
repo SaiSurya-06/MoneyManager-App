@@ -1,10 +1,14 @@
 import 'dart:convert';
+import 'dart:math';
 import 'package:crypto/crypto.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:local_auth/local_auth.dart';
 import '../core/database/daos/user_profile_dao.dart';
 import '../models/user_profile.dart';
 import '../core/notifications/notification_service.dart';
+import '../core/constants/app_constants.dart';
+import '../core/utils/app_logger.dart';
 
 enum AuthStatus {
   undetermined,
@@ -58,9 +62,9 @@ class AuthState {
 class AuthNotifier extends StateNotifier<AuthState> {
   final UserProfileDao _profileDao = UserProfileDao();
   final LocalAuthentication _localAuth = LocalAuthentication();
+  final FlutterSecureStorage _secureStorage = const FlutterSecureStorage();
 
-  AuthNotifier()
-      : super(AuthState(status: AuthStatus.undetermined)) {
+  AuthNotifier() : super(AuthState(status: AuthStatus.undetermined)) {
     checkProfile();
   }
 
@@ -74,12 +78,14 @@ class AuthNotifier extends StateNotifier<AuthState> {
           await NotificationService.instance.scheduleDailyReminder(hour, minute);
         }
       } catch (e) {
-        // ignore errors during scheduling
+        AppLogger.w('Failed to schedule daily reminder', error: e, tag: 'AuthProvider');
       }
     } else {
       try {
         await NotificationService.instance.cancelDailyReminder();
-      } catch (_) {}
+      } catch (e) {
+        AppLogger.w('Failed to cancel daily reminder', error: e, tag: 'AuthProvider');
+      }
     }
   }
 
@@ -106,7 +112,8 @@ class AuthNotifier extends StateNotifier<AuthState> {
           await _scheduleReminderIfEnabled(activeProfile);
         }
       }
-    } catch (e) {
+    } catch (e, stack) {
+      AppLogger.e('Database error checking profile', error: e, stackTrace: stack, tag: 'AuthProvider');
       state = state.copyWith(errorMessage: 'Database error: $e');
     }
   }
@@ -117,6 +124,7 @@ class AuthNotifier extends StateNotifier<AuthState> {
       final bool canAuthenticate = canAuthenticateWithBiometrics || await _localAuth.isDeviceSupported();
       return canAuthenticate;
     } catch (e) {
+      AppLogger.w('Biometrics check error', error: e, tag: 'AuthProvider');
       return false;
     }
   }
@@ -149,21 +157,36 @@ class AuthNotifier extends StateNotifier<AuthState> {
     );
   }
 
+  String _generateSalt() {
+    final rnd = Random.secure();
+    final bytes = List<int>.generate(16, (_) => rnd.nextInt(256));
+    return base64Url.encode(bytes);
+  }
+
   Future<bool> setupPin(String name, String currency, String pin) async {
     try {
-      final pinHash = _hashPin(pin);
+      final salt = _generateSalt();
+      final pinHash = _hashPinWithSalt(pin, salt);
+      
       final profile = UserProfile(
         name: name,
         preferredCurrency: currency,
         pinHash: pinHash,
         biometricEnabled: false,
-        themePreference: 'dark',
+        themePreference: AppConstants.defaultTheme,
         reminderEnabled: true,
-        reminderTime: '20:00',
+        reminderTime: AppConstants.defaultReminderTime,
       );
 
       final id = await _profileDao.insertProfile(profile);
       final createdProfile = profile.copyWith(id: id);
+      
+      // Persist salt in secure storage
+      await _secureStorage.write(
+        key: '${AppConstants.securePinSaltKey}_$id',
+        value: salt,
+      );
+
       await checkProfile();
 
       state = state.copyWith(
@@ -172,7 +195,8 @@ class AuthNotifier extends StateNotifier<AuthState> {
       );
       await _scheduleReminderIfEnabled(createdProfile);
       return true;
-    } catch (e) {
+    } catch (e, stack) {
+      AppLogger.e('Failed to save PIN during setup', error: e, stackTrace: stack, tag: 'AuthProvider');
       state = state.copyWith(errorMessage: 'Failed to save PIN: $e');
       return false;
     }
@@ -182,7 +206,7 @@ class AuthNotifier extends StateNotifier<AuthState> {
     final profile = state.profile;
     if (profile == null) return false;
 
-    // Check if currently locked out
+    // Check lockout status
     if (state.lockedUntil != null && DateTime.now().isBefore(state.lockedUntil!)) {
       final remaining = state.lockedUntil!.difference(DateTime.now());
       state = state.copyWith(
@@ -191,8 +215,30 @@ class AuthNotifier extends StateNotifier<AuthState> {
       return false;
     }
 
-    final inputHash = _hashPin(pin);
-    if (profile.pinHash == inputHash) {
+    final saltKey = '${AppConstants.securePinSaltKey}_${profile.id}';
+    String? salt = await _secureStorage.read(key: saltKey);
+
+    bool isValid = false;
+
+    if (salt != null) {
+      final inputHash = _hashPinWithSalt(pin, salt);
+      isValid = (profile.pinHash == inputHash);
+    } else {
+      // Legacy unsalted hash fallback + auto migration
+      final legacyHash = _hashLegacyPin(pin);
+      if (profile.pinHash == legacyHash) {
+        isValid = true;
+        // Seamlessly migrate profile to salted hash
+        final newSalt = _generateSalt();
+        final newHash = _hashPinWithSalt(pin, newSalt);
+        await _secureStorage.write(key: saltKey, value: newSalt);
+        final updatedProfile = profile.copyWith(pinHash: newHash);
+        await _profileDao.updateProfile(updatedProfile);
+        AppLogger.i('Migrated profile PIN to salted hash', tag: 'AuthProvider');
+      }
+    }
+
+    if (isValid) {
       state = state.copyWith(
         status: AuthStatus.authenticated,
         wrongAttempts: 0,
@@ -210,7 +256,9 @@ class AuthNotifier extends StateNotifier<AuthState> {
         errMsg = 'Too many failed attempts. App locked for 30 minutes.';
         try {
           await NotificationService.instance.showLockoutAlert();
-        } catch (_) {}
+        } catch (e) {
+          AppLogger.w('Failed to show lockout alert', error: e, tag: 'AuthProvider');
+        }
       }
       
       final attemptsRemaining = 5 - newAttempts;
@@ -244,7 +292,8 @@ class AuthNotifier extends StateNotifier<AuthState> {
         return true;
       }
       return false;
-    } catch (e) {
+    } catch (e, stack) {
+      AppLogger.e('Biometric authentication failed', error: e, stackTrace: stack, tag: 'AuthProvider');
       state = state.copyWith(errorMessage: 'Biometric authentication failed: $e');
       return false;
     }
@@ -255,7 +304,8 @@ class AuthNotifier extends StateNotifier<AuthState> {
       await _profileDao.updateProfile(updatedProfile);
       state = state.copyWith(profile: updatedProfile);
       await _scheduleReminderIfEnabled(updatedProfile);
-    } catch (e) {
+    } catch (e, stack) {
+      AppLogger.e('Failed to update profile', error: e, stackTrace: stack, tag: 'AuthProvider');
       state = state.copyWith(errorMessage: 'Failed to update profile: $e');
     }
   }
@@ -268,7 +318,13 @@ class AuthNotifier extends StateNotifier<AuthState> {
     }
   }
 
-  String _hashPin(String pin) {
+  String _hashPinWithSalt(String pin, String salt) {
+    final bytes = utf8.encode(pin + salt);
+    final digest = sha256.convert(bytes);
+    return digest.toString();
+  }
+
+  String _hashLegacyPin(String pin) {
     final bytes = utf8.encode(pin);
     final digest = sha256.convert(bytes);
     return digest.toString();

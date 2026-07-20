@@ -24,7 +24,7 @@ class AppDatabase {
   AppDatabase._init();
 
   Future<Database> get database async {
-    if (_database != null) return _database!;
+    if (_database != null && _database!.isOpen) return _database!;
 
     // Guard against concurrent calls racing to open the DB.
     if (_isInitialising) {
@@ -35,12 +35,14 @@ class AppDatabase {
 
     _isInitialising = true;
     try {
+      if (_database != null && _database!.isOpen) return _database!;
       _database = await _initDB('money_manager.db');
+      final currentDb = _database!;
       for (final c in _pendingInitialisers) {
-        c.complete(_database);
+        c.complete(currentDb);
       }
       _pendingInitialisers.clear();
-      return _database!;
+      return currentDb;
     } catch (e) {
       for (final c in _pendingInitialisers) {
         c.completeError(e);

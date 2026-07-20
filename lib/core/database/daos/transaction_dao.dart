@@ -279,8 +279,8 @@ class TransactionDao {
   }
 
   int? _parseDestAccountId(String? note) {
-    if (note == null) return null;
-    final regExp = RegExp(r'Transfer to target account ID: (\d+)');
+    if (note == null || note.trim().isEmpty) return null;
+    final regExp = RegExp(r'Transfer to target account ID:\s*(\d+)', caseSensitive: false);
     final match = regExp.firstMatch(note);
     if (match != null) {
       return int.tryParse(match.group(1) ?? '');
@@ -289,8 +289,8 @@ class TransactionDao {
   }
 
   int? _parseCreditCardTargetAccountId(String? note) {
-    if (note == null) return null;
-    final regExp = RegExp(r'Credit Card Payment to target account ID: (\d+)');
+    if (note == null || note.trim().isEmpty) return null;
+    final regExp = RegExp(r'Credit Card payment to account ID:\s*(\d+)', caseSensitive: false);
     final match = regExp.firstMatch(note);
     if (match != null) {
       return int.tryParse(match.group(1) ?? '');
