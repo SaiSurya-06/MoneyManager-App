@@ -4,6 +4,7 @@ import 'dart:io';
 import 'dart:math';
 import 'package:flutter/foundation.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:http/http.dart' as http;
 import 'package:path_provider/path_provider.dart';
 
 import '../models/account.dart';
@@ -348,7 +349,6 @@ class PartnerSyncNotifier extends StateNotifier<PartnerSyncState> {
   }
 
   Future<bool> testConnection(String url) async {
-    final client = HttpClient();
     try {
       final cleanedUrl = url.trim();
       if (cleanedUrl.isEmpty) return false;
@@ -363,18 +363,16 @@ class PartnerSyncNotifier extends StateNotifier<PartnerSyncState> {
       final queryParams = Map<String, dynamic>.from(baseUri.queryParameters);
       queryParams['action'] = 'test';
       final uri = baseUri.replace(queryParameters: queryParams);
-      final request = await client.getUrl(uri);
-      final response = await request.close();
+
+      final response = await http.get(uri).timeout(const Duration(seconds: 10));
       if (response.statusCode == 200) {
-        final responseBody = await response.transform(utf8.decoder).join();
-        return responseBody.trim() == 'ok';
+        return response.body.trim() == 'ok';
       }
+      AppLogger.w('Test connection non-200 status: ${response.statusCode}', tag: 'PartnerSync');
       return false;
     } catch (e, stack) {
       AppLogger.e('Test connection error', error: e, stackTrace: stack, tag: 'PartnerSync');
       return false;
-    } finally {
-      client.close();
     }
   }
 
@@ -788,78 +786,72 @@ class PartnerSyncNotifier extends StateNotifier<PartnerSyncState> {
 
   Future<void> _uploadData(String payload) async {
     final key = '${state.roomCode}__${state.mySlot}_data';
-    final chunks = _splitIntoChunks(payload, 3500);
+    final chunks = _splitIntoChunks(payload, 3000);
     final total = chunks.length;
 
-    final client = HttpClient();
-    try {
-      for (int i = 0; i < total; i++) {
-        final chunk = chunks[i];
-        final baseUri = Uri.parse(state.webAppUrl);
-        final queryParams = Map<String, dynamic>.from(baseUri.queryParameters);
-        queryParams['action'] = 'set_chunk';
-        queryParams['key'] = key;
-        queryParams['index'] = '$i';
-        queryParams['total'] = '$total';
-        final uri = baseUri.replace(queryParameters: queryParams);
-        
-        state = state.copyWith(
-          syncProgress: (i / total) * 0.5,
-          syncStatusMessage: 'Uploading: Chunk ${i + 1} of $total...',
-        );
+    for (int i = 0; i < total; i++) {
+      final chunk = chunks[i];
+      final baseUri = Uri.parse(state.webAppUrl);
+      final queryParams = Map<String, dynamic>.from(baseUri.queryParameters);
+      queryParams['action'] = 'set_chunk';
+      queryParams['key'] = key;
+      queryParams['index'] = '$i';
+      queryParams['total'] = '$total';
 
-        bool success = false;
-        int attempts = 0;
-        String lastError = '';
-        while (!success && attempts < 3) {
-          try {
-            attempts++;
-            // Try POST first for payload body safety, fallback to GET if script requires query params
-            final request = await client.postUrl(uri);
-            request.headers.contentType = ContentType('text', 'plain', charset: 'utf-8');
-            request.write(chunk);
-            final response = await request.close();
-            if (response.statusCode == 200) {
-              final responseBody = await response.transform(utf8.decoder).join();
-              if (responseBody.contains('chunk_received') || responseBody.contains('assembled') || responseBody == 'ok') {
-                success = true;
-                break;
-              } else {
-                lastError = 'Server response: $responseBody';
-              }
+      state = state.copyWith(
+        syncProgress: (i / total) * 0.5,
+        syncStatusMessage: 'Uploading: Chunk ${i + 1} of $total...',
+      );
+
+      bool success = false;
+      int attempts = 0;
+      String lastError = '';
+
+      while (!success && attempts < 3) {
+        try {
+          attempts++;
+          final uri = baseUri.replace(queryParameters: queryParams);
+          
+          // Try HTTP POST first
+          final response = await http.post(
+            uri,
+            headers: {'Content-Type': 'text/plain; charset=utf-8'},
+            body: chunk,
+          ).timeout(const Duration(seconds: 15));
+
+          if (response.statusCode == 200) {
+            final responseBody = response.body;
+            if (responseBody.contains('chunk_received') || responseBody.contains('assembled') || responseBody == 'ok') {
+              success = true;
+              break;
             } else {
-              lastError = 'HTTP status ${response.statusCode}';
+              lastError = 'Server response: $responseBody';
             }
-          } catch (e) {
-            // Fallback GET attempt
-            try {
-              final getUri = baseUri.replace(queryParameters: {
-                ...queryParams,
-                'val': chunk,
-              });
-              final getReq = await client.getUrl(getUri);
-              final getResp = await getReq.close();
-              if (getResp.statusCode == 200) {
-                final getBody = await getResp.transform(utf8.decoder).join();
-                if (getBody.contains('chunk_received') || getBody.contains('assembled')) {
-                  success = true;
-                  break;
-                }
-              }
-            } catch (getErr) {
-              lastError = getErr.toString();
+          } else {
+            // Fallback GET request if POST fails
+            final getUri = baseUri.replace(queryParameters: {
+              ...queryParams,
+              'val': chunk,
+            });
+            final getResp = await http.get(getUri).timeout(const Duration(seconds: 15));
+            if (getResp.statusCode == 200 && (getResp.body.contains('chunk_received') || getResp.body.contains('assembled'))) {
+              success = true;
+              break;
+            } else {
+              lastError = 'HTTP POST ${response.statusCode} / GET ${getResp.statusCode}';
             }
           }
-          if (!success && attempts < 3) {
-            await Future.delayed(Duration(seconds: attempts * 2));
-          }
+        } catch (e) {
+          lastError = e.toString();
         }
-        if (!success) {
-          throw Exception('Upload chunk $i failed after $attempts attempts. Error: $lastError');
+        if (!success && attempts < 3) {
+          await Future.delayed(Duration(seconds: attempts * 2));
         }
       }
-    } finally {
-      client.close();
+
+      if (!success) {
+        throw Exception('Upload chunk $i failed after $attempts attempts. Error: $lastError');
+      }
     }
   }
 
@@ -876,60 +868,55 @@ class PartnerSyncNotifier extends StateNotifier<PartnerSyncState> {
     final uri = baseUri.replace(queryParameters: queryParams);
 
     state = state.copyWith(
-      syncProgress: 0.6, // Download takes 60%
+      syncProgress: 0.6,
       syncStatusMessage: 'Downloading partner changes...',
     );
 
-    final client = HttpClient();
-    try {
-      bool success = false;
-      int attempts = 0;
-      String lastError = '';
-      String responseBody = '';
+    bool success = false;
+    int attempts = 0;
+    String lastError = '';
+    String responseBody = '';
 
-      while (!success && attempts < 3) {
-        try {
-          attempts++;
-          final request = await client.getUrl(uri);
-          final response = await request.close();
-          if (response.statusCode == 200) {
-            responseBody = await response.transform(utf8.decoder).join();
-            success = true;
-            break;
-          } else {
-            lastError = 'HTTP status ${response.statusCode}';
-          }
-        } catch (e) {
-          lastError = e.toString();
+    while (!success && attempts < 3) {
+      try {
+        attempts++;
+        final response = await http.get(uri).timeout(const Duration(seconds: 15));
+        if (response.statusCode == 200) {
+          responseBody = response.body;
+          success = true;
+          break;
+        } else {
+          lastError = 'HTTP status ${response.statusCode}';
         }
-        if (!success && attempts < 3) {
-          await Future.delayed(Duration(seconds: attempts * 2));
-        }
+      } catch (e) {
+        lastError = e.toString();
       }
-
-      if (!success) {
-        throw Exception('Download failed after $attempts attempts. Error: $lastError');
+      if (!success && attempts < 3) {
+        await Future.delayed(Duration(seconds: attempts * 2));
       }
+    }
 
-      if (responseBody.trim() == '404') {
+    if (!success) {
+      AppLogger.w('Download partner data failed: $lastError', tag: 'PartnerSync');
+      return null;
+    }
+
+    final trimmed = responseBody.trim();
+    if (trimmed == '404' || trimmed.isEmpty) {
+      AppLogger.i('No partner payload on server yet (404)', tag: 'PartnerSync');
+      return null;
+    }
+
+    if (responseBody.startsWith('{"changes":')) {
+      final decoded = jsonDecode(responseBody) as Map<String, dynamic>;
+      final isIncremental = decoded['isIncremental'] as bool? ?? false;
+      if (isIncremental && (decoded['changes'] as List).isEmpty) {
         return null;
       }
-
-      // Check if incremental response
-      if (responseBody.startsWith('{"changes":')) {
-        final decoded = jsonDecode(responseBody) as Map<String, dynamic>;
-        final isIncremental = decoded['isIncremental'] as bool? ?? false;
-        if (isIncremental && (decoded['changes'] as List).isEmpty) {
-          return null; // No changes since last sync
-        }
-        // Return the full data for processing
-        return responseBody;
-      }
-
       return responseBody;
-    } finally {
-      client.close();
     }
+
+    return responseBody;
   }
 
   Future<void> cleanupPartnerDataFromLocalDB() async {
