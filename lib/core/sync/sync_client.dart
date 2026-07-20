@@ -50,12 +50,11 @@ class SyncClient {
             name: pAcc.name,
             type: pAcc.type,
             balance: pAcc.balance,
-            currency: pAcc.currency,
             icon: pAcc.icon,
             color: pAcc.color,
             isShared: true,
+            createdAt: DateTime.now(),
             limitAmount: pAcc.limitAmount,
-            dueDate: pAcc.dueDate,
           );
           final id = await _accountDao.insertAccount(newSharedAcc);
           localAccountMap[nameKey] = newSharedAcc.copyWith(id: id);

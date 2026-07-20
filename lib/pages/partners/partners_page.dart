@@ -341,6 +341,8 @@ class _PartnersPageState extends ConsumerState<PartnersPage> with SingleTickerPr
       });
       ToastNotification.show(context, 'Disconnected.');
     }
+  }
+
   Future<void> _showConnectionAndDataTransferFlow() async {
     final syncState = ref.read(partnerSyncProvider);
 
