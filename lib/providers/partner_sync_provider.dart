@@ -786,17 +786,14 @@ class PartnerSyncNotifier extends StateNotifier<PartnerSyncState> {
 
   Future<void> _uploadData(String payload) async {
     final key = '${state.roomCode}__${state.mySlot}_data';
-    final chunks = _splitIntoChunks(payload, 3000);
+    // GAS Web Apps only support GET requests - keep chunks small for URL safety
+    // URL encoding can triple char count, so stay under ~600 chars per chunk
+    final chunks = _splitIntoChunks(payload, 600);
     final total = chunks.length;
 
     for (int i = 0; i < total; i++) {
       final chunk = chunks[i];
       final baseUri = Uri.parse(state.webAppUrl);
-      final queryParams = Map<String, dynamic>.from(baseUri.queryParameters);
-      queryParams['action'] = 'set_chunk';
-      queryParams['key'] = key;
-      queryParams['index'] = '$i';
-      queryParams['total'] = '$total';
 
       state = state.copyWith(
         syncProgress: (i / total) * 0.5,
@@ -810,36 +807,33 @@ class PartnerSyncNotifier extends StateNotifier<PartnerSyncState> {
       while (!success && attempts < 3) {
         try {
           attempts++;
-          final uri = baseUri.replace(queryParameters: queryParams);
-          
-          // Try HTTP POST first
-          final response = await http.post(
-            uri,
-            headers: {'Content-Type': 'text/plain; charset=utf-8'},
-            body: chunk,
-          ).timeout(const Duration(seconds: 15));
+          // Build GET URI with val as query param — GAS only handles doGet
+          final uri = baseUri.replace(queryParameters: {
+            ...Map<String, dynamic>.from(baseUri.queryParameters),
+            'action': 'set_chunk',
+            'key': key,
+            'index': '$i',
+            'total': '$total',
+            'val': chunk,
+          });
+
+          final response = await http.get(uri).timeout(const Duration(seconds: 20));
 
           if (response.statusCode == 200) {
-            final responseBody = response.body;
-            if (responseBody.contains('chunk_received') || responseBody.contains('assembled') || responseBody == 'ok') {
+            final body = response.body.trim();
+            if (body == 'chunk_received' || body == 'assembled' || body == 'ok') {
               success = true;
               break;
+            } else if (body.startsWith('<!DOCTYPE') || body.startsWith('<html')) {
+              // GAS returned HTML error page - script may need redeployment
+              lastError = 'GAS script error (HTML response). Please redeploy your Web App.';
+              AppLogger.e(lastError, tag: 'PartnerSync');
+              break; // Don't retry - structural error
             } else {
-              lastError = 'Server response: $responseBody';
+              lastError = 'Unexpected server response: $body';
             }
           } else {
-            // Fallback GET request if POST fails
-            final getUri = baseUri.replace(queryParameters: {
-              ...queryParams,
-              'val': chunk,
-            });
-            final getResp = await http.get(getUri).timeout(const Duration(seconds: 15));
-            if (getResp.statusCode == 200 && (getResp.body.contains('chunk_received') || getResp.body.contains('assembled'))) {
-              success = true;
-              break;
-            } else {
-              lastError = 'HTTP POST ${response.statusCode} / GET ${getResp.statusCode}';
-            }
+            lastError = 'HTTP ${response.statusCode}';
           }
         } catch (e) {
           lastError = e.toString();
@@ -850,7 +844,11 @@ class PartnerSyncNotifier extends StateNotifier<PartnerSyncState> {
       }
 
       if (!success) {
-        throw Exception('Upload chunk $i failed after $attempts attempts. Error: $lastError');
+        state = state.copyWith(
+          errorMessage: 'Sync failed: $lastError',
+          isSyncing: false,
+        );
+        throw Exception('Upload chunk $i failed: $lastError');
       }
     }
   }
@@ -901,22 +899,38 @@ class PartnerSyncNotifier extends StateNotifier<PartnerSyncState> {
       return null;
     }
 
-    final trimmed = responseBody.trim();
+    var trimmed = responseBody.trim();
+
+    // GAS HTML error page - script issue
+    if (trimmed.startsWith('<!DOCTYPE') || trimmed.startsWith('<html')) {
+      AppLogger.e('GAS script returned HTML error - please redeploy your Web App', tag: 'PartnerSync');
+      state = state.copyWith(
+        errorMessage: 'Web App script error. Please redeploy your Google Apps Script.',
+        isSyncing: false,
+      );
+      return null;
+    }
+
     if (trimmed == '404' || trimmed.isEmpty) {
       AppLogger.i('No partner payload on server yet (404)', tag: 'PartnerSync');
       return null;
     }
 
-    if (responseBody.startsWith('{"changes":')) {
-      final decoded = jsonDecode(responseBody) as Map<String, dynamic>;
+    // Strip leading apostrophe that old GAS template adds to prevent number conversion
+    if (trimmed.startsWith("'")) {
+      trimmed = trimmed.substring(1);
+    }
+
+    if (trimmed.startsWith('{"changes":')) {
+      final decoded = jsonDecode(trimmed) as Map<String, dynamic>;
       final isIncremental = decoded['isIncremental'] as bool? ?? false;
       if (isIncremental && (decoded['changes'] as List).isEmpty) {
         return null;
       }
-      return responseBody;
+      return trimmed;
     }
 
-    return responseBody;
+    return trimmed;
   }
 
   Future<void> cleanupPartnerDataFromLocalDB() async {
