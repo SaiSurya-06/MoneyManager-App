@@ -1,6 +1,7 @@
 import 'package:flutter/foundation.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../database/daos/transaction_dao.dart';
+import '../database/daos/account_dao.dart';
 import '../database/database.dart';
 import '../../models/account.dart';
 import '../../models/transaction.dart';
@@ -14,6 +15,7 @@ import '../../providers/planning_state_provider.dart';
 class SyncClient {
   final Ref ref;
   final TransactionDao _transactionDao = TransactionDao();
+  final AccountDao _accountDao = AccountDao();
 
   SyncClient(this.ref);
 
@@ -28,41 +30,58 @@ class SyncClient {
       final localAccounts = ref.read(accountsProvider).accounts;
       final categories = ref.read(categoriesProvider).categories;
 
-      // 1. Identify which accounts are joint/shared accounts
-      // A joint account is one that exists locally, has the same name as a partner account,
-      // and is marked as isShared = true locally.
       final jointAccountNames = <String>{};
       final localAccountMap = <String, Account>{};
       
       for (var acc in localAccounts) {
+        localAccountMap[acc.name.toLowerCase().trim()] = acc;
         if (acc.isShared) {
-          localAccountMap[acc.name.toLowerCase().trim()] = acc;
+          jointAccountNames.add(acc.name.toLowerCase().trim());
         }
       }
 
+      // Auto-create or mark local matching accounts as shared when syncing partner accounts
       for (var pAcc in newPartnerAccounts) {
         final nameKey = pAcc.name.toLowerCase().trim();
-        if (localAccountMap.containsKey(nameKey)) {
-          jointAccountNames.add(nameKey);
+        jointAccountNames.add(nameKey);
+
+        if (!localAccountMap.containsKey(nameKey)) {
+          final newSharedAcc = Account(
+            name: pAcc.name,
+            type: pAcc.type,
+            balance: pAcc.balance,
+            currency: pAcc.currency,
+            icon: pAcc.icon,
+            color: pAcc.color,
+            isShared: true,
+            limitAmount: pAcc.limitAmount,
+            dueDate: pAcc.dueDate,
+          );
+          final id = await _accountDao.insertAccount(newSharedAcc);
+          localAccountMap[nameKey] = newSharedAcc.copyWith(id: id);
+        } else {
+          final existing = localAccountMap[nameKey]!;
+          if (!existing.isShared) {
+            await _accountDao.updateAccount(existing.copyWith(isShared: true));
+            localAccountMap[nameKey] = existing.copyWith(isShared: true);
+          }
         }
       }
 
-      // 2. We only reconcile transactions that belong to joint accounts!
+      // Reconcile transactions that belong to joint/shared accounts
       final newJointPartnerTxs = newPartnerTransactions.where((t) =>
-        jointAccountNames.contains(t.accountName.toLowerCase().trim())
+        jointAccountNames.contains(t.accountName.toLowerCase().trim()) || jointAccountNames.isEmpty
       ).toList();
 
       final oldJointPartnerTxs = oldPartnerTransactions.where((t) =>
-        jointAccountNames.contains(t.accountName.toLowerCase().trim())
+        jointAccountNames.contains(t.accountName.toLowerCase().trim()) || jointAccountNames.isEmpty
       ).toList();
 
-      // Helper to find local account ID by name (only for joint accounts)
       int? getAccountIdByName(String name) {
         final nameKey = name.toLowerCase().trim();
         return localAccountMap[nameKey]?.id;
       }
 
-      // Helper to find local category ID by name
       int? getCategoryIdByName(String name) {
         final cat = categories.cast<dynamic>().firstWhere(
           (c) => c.name.toLowerCase().trim() == name.toLowerCase().trim(),
@@ -71,15 +90,12 @@ class SyncClient {
         return cat?.id;
       }
 
-      // Reload accounts provider so we have updated account mappings
       final updatedLocalAccounts = ref.read(accountsProvider).accounts;
       final localTxs = ref.read(transactionsProvider).transactions;
 
-      // Define unique key helper for partner transactions
       String ptxKey(PartnerTransaction t) =>
           "${t.title.toLowerCase().trim()}_${t.amount.toStringAsFixed(2)}_${t.type}_${t.date.toIso8601String().substring(0, 10)}_${t.accountName.toLowerCase().trim()}";
 
-      // Define unique key helper for local transactions
       String txKey(Transaction t) {
         final acc = updatedLocalAccounts.cast<Account?>().firstWhere(
           (a) => a != null && a.id == t.accountId,
@@ -93,7 +109,7 @@ class SyncClient {
         for (var tx in localTxs) txKey(tx): tx
       };
 
-      // A. Detect deletions of joint transactions by partner:
+      // Detect deletions of joint transactions by partner
       final Set<String> newPartnerKeys = newJointPartnerTxs.map(ptxKey).toSet();
       for (var oldPtx in oldJointPartnerTxs) {
         final key = ptxKey(oldPtx);
@@ -105,33 +121,31 @@ class SyncClient {
         }
       }
 
-      // B. Detect additions of joint transactions by partner:
+      // Detect additions of joint transactions by partner
       for (var ptx in newJointPartnerTxs) {
         final key = ptxKey(ptx);
         if (!localTxMap.containsKey(key)) {
-          final accId = getAccountIdByName(ptx.accountName);
-          if (accId != null) {
-            final catId = getCategoryIdByName(ptx.categoryName) ?? 1;
-            final newTx = Transaction(
-              accountId: accId,
-              categoryId: catId,
-              title: ptx.title,
-              amount: ptx.amount,
-              type: ptx.type,
-              date: ptx.date,
-              note: ptx.note,
-              recurrence: ptx.recurrence,
-              isPrivate: false,
-              createdAt: DateTime.now(),
-            );
-            await _transactionDao.insertTransaction(newTx);
-          }
+          final accId = getAccountIdByName(ptx.accountName) ?? (localAccounts.isNotEmpty ? localAccounts.first.id : 1);
+          final catId = getCategoryIdByName(ptx.categoryName) ?? 1;
+          final newTx = Transaction(
+            accountId: accId!,
+            categoryId: catId,
+            title: ptx.title,
+            amount: ptx.amount,
+            type: ptx.type,
+            date: ptx.date,
+            note: ptx.note,
+            recurrence: ptx.recurrence,
+            isPrivate: false,
+            createdAt: DateTime.now(),
+          );
+          await _transactionDao.insertTransaction(newTx);
         }
       }
 
       final db = await AppDatabase.instance.database;
 
-      // C. Reconcile Budgets
+      // Reconcile Budgets
       if (partnerBudgets != null) {
         for (var pb in partnerBudgets) {
           final catName = pb['c'] as String? ?? 'Other';
@@ -179,7 +193,7 @@ class SyncClient {
         }
       }
 
-      // D. Reconcile Planning Meta (Splits & Strategies)
+      // Reconcile Planning Meta
       if (partnerPlanningMeta != null) {
         for (var pm in partnerPlanningMeta) {
           final month = pm['m'] as String? ?? '';
@@ -236,7 +250,7 @@ class SyncClient {
         }
       }
 
-      // 3. Refresh providers
+      // Refresh providers
       await ref.read(accountsProvider.notifier).loadAccounts();
       await ref.read(transactionsProvider.notifier).loadTransactions();
       await ref.read(budgetsProvider.notifier).loadBudgetsForCurrentMonth();

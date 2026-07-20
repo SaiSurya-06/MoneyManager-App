@@ -665,8 +665,11 @@ class PartnerSyncNotifier extends StateNotifier<PartnerSyncState> {
     final currency = profile?.preferredCurrency ?? 'USD';
     final themePref = profile?.themePreference ?? 'dark';
 
-    // Filter shared accounts
-    final sharedAccounts = accounts.where((a) => a.isShared).toList();
+    // Filter shared accounts (fallback to all active accounts if none marked explicitly)
+    var sharedAccounts = accounts.where((a) => a.isShared).toList();
+    if (sharedAccounts.isEmpty && accounts.isNotEmpty) {
+      sharedAccounts = accounts;
+    }
     final sharedAccountIds = sharedAccounts.map((a) => a.id).toSet();
 
     // Map categories for details

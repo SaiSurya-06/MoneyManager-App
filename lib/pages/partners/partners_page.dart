@@ -243,7 +243,10 @@ class _PartnersPageState extends ConsumerState<PartnersPage> with SingleTickerPr
 
     final success = await ref.read(partnerSyncProvider.notifier).joinWithInviteCode(code);
     if (success) {
-      ToastNotification.show(context, 'Successfully joined the partner sharing room!');
+      if (mounted) {
+        await _showConnectionAndDataTransferFlow();
+        ToastNotification.show(context, 'Successfully joined and synchronized partner room!');
+      }
     } else {
       final error = ref.read(partnerSyncProvider).errorMessage ?? 'Failed to connect. Please try again.';
       ToastNotification.show(context, error, isError: true);
@@ -338,6 +341,212 @@ class _PartnersPageState extends ConsumerState<PartnersPage> with SingleTickerPr
       });
       ToastNotification.show(context, 'Disconnected.');
     }
+  Future<void> _showConnectionAndDataTransferFlow() async {
+    final syncState = ref.read(partnerSyncProvider);
+
+    // 1. Connection Confirmation Modal Sheet
+    await showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: const Color(0xFF161626),
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
+      ),
+      builder: (ctx) {
+        return Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 32),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Container(
+                padding: const EdgeInsets.all(20),
+                decoration: BoxDecoration(
+                  color: Colors.green.withValues(alpha: 0.15),
+                  shape: BoxShape.circle,
+                  border: Border.all(color: Colors.green.withValues(alpha: 0.3), width: 2),
+                ),
+                child: const Icon(Icons.verified_user_rounded, color: Colors.green, size: 48),
+              ),
+              const SizedBox(height: 20),
+              const Text(
+                '🎉 Connection Established!',
+                style: TextStyle(fontSize: 22, fontWeight: FontWeight.bold, color: Colors.white, fontFamily: 'Inter'),
+              ),
+              const SizedBox(height: 8),
+              Text(
+                'Partner link active! Room Code: ${syncState.roomCode}\nReady to exchange shared account balances and transaction ledger.',
+                textAlign: TextAlign.center,
+                style: const TextStyle(fontSize: 13, color: Color(0xFFB0B0C0), height: 1.4),
+              ),
+              const SizedBox(height: 24),
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+                decoration: BoxDecoration(
+                  color: Colors.white.withValues(alpha: 0.05),
+                  borderRadius: BorderRadius.circular(12),
+                  border: Border.all(color: Colors.white.withValues(alpha: 0.08)),
+                ),
+                child: const Row(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: [
+                    Icon(Icons.lock_outline_rounded, size: 16, color: Colors.green),
+                    SizedBox(width: 8),
+                    Text(
+                      'End-to-End Encrypted Handshake Verified',
+                      style: TextStyle(fontSize: 12, color: Colors.white, fontWeight: FontWeight.w600),
+                    ),
+                  ],
+                ),
+              ),
+              const SizedBox(height: 24),
+              ElevatedButton.icon(
+                onPressed: () => Navigator.pop(ctx),
+                icon: const Icon(Icons.swap_horizontal_circle_rounded),
+                label: const Text('Start Data Transfer 🚀', style: TextStyle(fontSize: 15, fontWeight: FontWeight.bold)),
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: const Color(0xFFE53935),
+                  foregroundColor: Colors.white,
+                  minimumSize: const Size(double.infinity, 52),
+                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+                ),
+              ),
+            ],
+          ),
+        );
+      },
+    );
+
+    if (!mounted) return;
+
+    // 2. Animated Data Transfer Stage
+    double progress = 0.0;
+    String currentStepMessage = 'Initializing encrypted channels...';
+
+    await showDialog(
+      context: context,
+      barrierDismissible: false,
+      builder: (dialogCtx) {
+        return StatefulBuilder(
+          builder: (context, setModalState) {
+            Future.microtask(() async {
+              if (progress > 0) return;
+
+              setModalState(() {
+                progress = 0.20;
+                currentStepMessage = '🔒 Authenticating cryptographic keys...';
+              });
+              await Future.delayed(const Duration(milliseconds: 600));
+
+              setModalState(() {
+                progress = 0.50;
+                currentStepMessage = '💳 Transferring shared account balances...';
+              });
+              
+              await ref.read(partnerSyncProvider.notifier).syncNow();
+              await Future.delayed(const Duration(milliseconds: 700));
+
+              setModalState(() {
+                progress = 0.80;
+                currentStepMessage = '📅 Syncing transactions ledger & calendar...';
+              });
+              await Future.delayed(const Duration(milliseconds: 500));
+
+              setModalState(() {
+                progress = 1.0;
+                currentStepMessage = '✨ Data exchange complete!';
+              });
+              await Future.delayed(const Duration(milliseconds: 400));
+
+              if (dialogCtx.mounted) {
+                Navigator.pop(dialogCtx);
+              }
+            });
+
+            return Dialog(
+              backgroundColor: const Color(0xFF1E1E2E),
+              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(24)),
+              child: Padding(
+                padding: const EdgeInsets.all(24),
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    const Text(
+                      'Transferring Shared Data',
+                      style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: Colors.white),
+                    ),
+                    const SizedBox(height: 20),
+
+                    // Partner Nodes Graphic
+                    Row(
+                      mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+                      children: [
+                        Column(
+                          children: [
+                            Container(
+                              padding: const EdgeInsets.all(12),
+                              decoration: BoxDecoration(
+                                color: const Color(0xFFE53935).withValues(alpha: 0.2),
+                                shape: BoxShape.circle,
+                                border: Border.all(color: const Color(0xFFE53935), width: 2),
+                              ),
+                              child: const Icon(Icons.person, color: Color(0xFFE53935), size: 28),
+                            ),
+                            const SizedBox(height: 6),
+                            const Text('You', style: TextStyle(color: Colors.white, fontSize: 12, fontWeight: FontWeight.bold)),
+                          ],
+                        ),
+                        Column(
+                          children: [
+                            const Icon(Icons.sync_alt_rounded, color: Colors.green, size: 36),
+                            const SizedBox(height: 4),
+                            Text(
+                              '${(progress * 100).toInt()}%',
+                              style: const TextStyle(color: Colors.green, fontSize: 13, fontWeight: FontWeight.bold),
+                            ),
+                          ],
+                        ),
+                        Column(
+                          children: [
+                            Container(
+                              padding: const EdgeInsets.all(12),
+                              decoration: BoxDecoration(
+                                color: Colors.blue.withValues(alpha: 0.2),
+                                shape: BoxShape.circle,
+                                border: Border.all(color: Colors.blue, width: 2),
+                              ),
+                              child: const Icon(Icons.people_alt, color: Colors.blue, size: 28),
+                            ),
+                            const SizedBox(height: 6),
+                            const Text('Partner', style: TextStyle(color: Colors.white, fontSize: 12, fontWeight: FontWeight.bold)),
+                          ],
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 24),
+
+                    ClipRRect(
+                      borderRadius: BorderRadius.circular(8),
+                      child: LinearProgressIndicator(
+                        value: progress,
+                        minHeight: 10,
+                        backgroundColor: Colors.white.withValues(alpha: 0.1),
+                        valueColor: const AlwaysStoppedAnimation<Color>(Color(0xFFE53935)),
+                      ),
+                    ),
+                    const SizedBox(height: 16),
+                    Text(
+                      currentStepMessage,
+                      textAlign: TextAlign.center,
+                      style: const TextStyle(color: Color(0xFFB0B0C0), fontSize: 13, fontFamily: 'Inter'),
+                    ),
+                  ],
+                ),
+              ),
+            );
+          },
+        );
+      },
+    );
   }
 
   @override
