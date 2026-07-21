@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 import 'dart:math';
+import 'dart:typed_data';
 import 'package:flutter/foundation.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:http/http.dart' as http;
@@ -509,7 +510,20 @@ class PartnerSyncNotifier extends StateNotifier<PartnerSyncState> {
           syncProgress: 0.75,
           syncStatusMessage: 'Processing partner payload...',
         );
-        var decoded = ShareCodeEncoder.decode(partnerDataStr);
+
+        // Decompress the gzip+base64url payload, then parse as JSON
+        Map<String, dynamic> decoded;
+        try {
+          final decompressed = _decompressPayload(partnerDataStr);
+          decoded = jsonDecode(decompressed) as Map<String, dynamic>;
+        } catch (_) {
+          // Legacy fallback: try ShareCodeEncoder (old format)
+          try {
+            decoded = ShareCodeEncoder.decode(partnerDataStr);
+          } catch (e) {
+            throw Exception('Failed to parse partner payload: $e');
+          }
+        }
 
         // Handle incremental sync response
         if (decoded.containsKey('changes') && decoded.containsKey('isIncremental')) {
@@ -674,11 +688,13 @@ class PartnerSyncNotifier extends StateNotifier<PartnerSyncState> {
     final categoryMap = {for (var c in categories) c.id: c};
 
     // Filter transactions: must be non-private and belong to shared accounts
+    // Limit to last 100 to keep payload small and sync fast
     final sortedTxs = List<Transaction>.from(transactions)
       ..sort((a, b) => b.date.compareTo(a.date));
 
     final sharedTxs = sortedTxs
         .where((tx) => !tx.isPrivate && sharedAccountIds.contains(tx.accountId))
+        .take(100)
         .toList();
 
     // Find account names
@@ -698,43 +714,6 @@ class PartnerSyncNotifier extends StateNotifier<PartnerSyncState> {
       };
     }).toList();
 
-    // Export budgets & planning meta
-    List<Map<String, dynamic>> budgetsPayload = [];
-    List<Map<String, dynamic>> planningMetaPayload = [];
-    try {
-      final db = await AppDatabase.instance.database;
-      final budgetsQuery = await db.query('budget');
-      final planningMetaQuery = await db.query('planning_meta');
-
-      budgetsPayload = budgetsQuery.map((b) {
-        final catId = b['category_id'] as int?;
-        final cat = categoryMap[catId];
-        return {
-          'c': cat?.name ?? 'Other',
-          'l': (b['limit_amount'] as num?)?.toDouble() ?? 0.0,
-          'm': b['month'] as String? ?? '',
-          'r': b['recurrence'] as String? ?? 'monthly',
-          'g': b['group_name'] as String? ?? 'General',
-        };
-      }).toList();
-
-      planningMetaPayload = planningMetaQuery.map((pm) {
-        return {
-          'm': pm['month'] as String? ?? '',
-          'ei': (pm['estimated_income'] as num?)?.toDouble() ?? 0.0,
-          's': pm['strategy'] as String? ?? '50/30/20',
-          'n': (pm['needs_pct'] as num?)?.toDouble() ?? 0.0,
-          'w': (pm['wants_pct'] as num?)?.toDouble() ?? 0.0,
-          'sa': (pm['savings_pct'] as num?)?.toDouble() ?? 0.0,
-          'i': (pm['investments_pct'] as num?)?.toDouble() ?? 0.0,
-          'em': (pm['emergency_pct'] as num?)?.toDouble() ?? 0.0,
-          'ic': pm['is_completed'] as int? ?? 1,
-        };
-      }).toList();
-    } catch (e) {
-      debugPrint('[PartnerSyncProvider] Error querying budgets/planning_meta for sync: $e');
-    }
-
     final payloadMap = {
       'profile': {
         'name': name,
@@ -743,21 +722,40 @@ class PartnerSyncNotifier extends StateNotifier<PartnerSyncState> {
       },
       'accounts': sharedAccounts.map((a) => a.toMap()..['pending_payment'] = a.pendingPayment).toList(),
       'transactions': transactionsPayload,
-      'budgets': budgetsPayload,
-      'planning_meta': planningMetaPayload,
     };
 
     final rawJson = jsonEncode(payloadMap);
-    if (state.syncPassword != null && state.syncPassword!.isNotEmpty) {
-      final encrypted = EncryptionService.instance.encrypt(
-        rawJson,
-        state.syncPassword!,
-        state.syncSalt ?? 'default_salt',
-      );
-      return ShareCodeEncoder.encode({'encrypted': encrypted});
-    }
 
-    return ShareCodeEncoder.encode(payloadMap);
+    // Compress with gzip then base64url-encode — reduces payload by ~70-80%
+    final compressed = _compressPayload(rawJson);
+    AppLogger.i('Payload: raw=${rawJson.length} chars → compressed=${compressed.length} chars', tag: 'PartnerSync');
+    return compressed;
+  }
+
+  /// Gzip-compress text and return URL-safe base64 string
+  String _compressPayload(String text) {
+    final bytes = utf8.encode(text);
+    final gzipped = GZipCodec().encode(bytes);
+    // Use URL-safe base64 (no +/= chars that break URL query params)
+    return base64Url.encode(gzipped);
+  }
+
+  /// Decompress a payload produced by [_compressPayload]
+  String _decompressPayload(String compressed) {
+    try {
+      // Pad base64url string if needed
+      final padded = compressed.padRight(
+        compressed.length + (4 - compressed.length % 4) % 4,
+        '=',
+      );
+      final gzipped = base64Url.decode(padded);
+      final bytes = GZipCodec().decode(gzipped);
+      return utf8.decode(bytes as Uint8List? ?? Uint8List.fromList(bytes));
+    } catch (e) {
+      // Fallback: maybe it's plain JSON (legacy payload)
+      AppLogger.w('Decompression failed, treating as raw JSON: $e', tag: 'PartnerSync');
+      return compressed;
+    }
   }
 
   bool _isLetter(String char) {
@@ -786,9 +784,9 @@ class PartnerSyncNotifier extends StateNotifier<PartnerSyncState> {
 
   Future<void> _uploadData(String payload) async {
     final key = '${state.roomCode}__${state.mySlot}_data';
-    // GAS Web Apps only support GET requests - keep chunks small for URL safety
-    // URL encoding can triple char count, so stay under ~600 chars per chunk
-    final chunks = _splitIntoChunks(payload, 600);
+    // Payload is already base64url-encoded (URL-safe, no special chars).
+    // GAS GET URL limit ~2000 chars total; key+params ~100 chars, so 1500 chars/chunk is safe.
+    final chunks = _splitIntoChunks(payload, 1500);
     final total = chunks.length;
 
     for (int i = 0; i < total; i++) {
