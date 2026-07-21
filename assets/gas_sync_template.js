@@ -77,7 +77,25 @@ function doGet(e) {
 }
 
 function getOrCreateSheet() {
-  var ss = SpreadsheetApp.getActiveSpreadsheet();
+  var ss = null;
+  
+  // 1. Try bound script (Script Editor opened from inside a Google Sheet)
+  try { ss = SpreadsheetApp.getActiveSpreadsheet(); } catch(e) { ss = null; }
+  
+  // 2. Standalone script: retrieve or create a spreadsheet via Script Properties
+  if (!ss) {
+    var props = PropertiesService.getScriptProperties();
+    var ssId = props.getProperty('SPREADSHEET_ID');
+    if (ssId) {
+      try { ss = SpreadsheetApp.openById(ssId); } catch(e) { ssId = null; }
+    }
+    if (!ss) {
+      // Create a new spreadsheet and remember its ID for future calls
+      ss = SpreadsheetApp.create('MoneyManager Partner Sync');
+      props.setProperty('SPREADSHEET_ID', ss.getId());
+    }
+  }
+  
   var sheet = ss.getSheetByName('SyncData');
   if (!sheet) {
     sheet = ss.insertSheet('SyncData');
