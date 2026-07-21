@@ -693,7 +693,6 @@ class PartnerSyncNotifier extends StateNotifier<PartnerSyncState> {
 
     final sharedTxs = sortedTxs
         .where((tx) => !tx.isPrivate && sharedAccountIds.contains(tx.accountId))
-        .take(100)
         .toList();
 
     // Find account names
