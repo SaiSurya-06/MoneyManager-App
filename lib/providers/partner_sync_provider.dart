@@ -2,7 +2,6 @@ import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 import 'dart:math';
-import 'dart:typed_data';
 import 'package:flutter/foundation.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:http/http.dart' as http;
@@ -750,7 +749,7 @@ class PartnerSyncNotifier extends StateNotifier<PartnerSyncState> {
       );
       final gzipped = base64Url.decode(padded);
       final bytes = GZipCodec().decode(gzipped);
-      return utf8.decode(bytes as Uint8List? ?? Uint8List.fromList(bytes));
+      return utf8.decode(List<int>.from(bytes));
     } catch (e) {
       // Fallback: maybe it's plain JSON (legacy payload)
       AppLogger.w('Decompression failed, treating as raw JSON: $e', tag: 'PartnerSync');
