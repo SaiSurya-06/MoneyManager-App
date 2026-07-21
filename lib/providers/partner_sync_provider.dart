@@ -324,19 +324,62 @@ class PartnerSyncNotifier extends StateNotifier<PartnerSyncState> {
 
   void _startSyncTimer() {
     _syncTimer?.cancel();
-    // HOST (slot A) in Waiting state: sit completely idle.
-    // Do NOT start a polling timer — the host has already uploaded their data once
-    // via generateInviteCode. The partner will download it when they join.
-    // Only start the timer when both sides are connected (partnerName is real).
     if (!state.isConnected) return;
+
+    // HOST (slot A) waiting for partner: start a lightweight polling timer.
+    // Every 10 seconds, make ONE GET request to check if partner's data key
+    // exists on GAS. No uploading — host data was already uploaded once.
+    // When partner's data appears, trigger a full sync and transition to dashboard.
     if (state.mySlot == 'A' && state.partnerName == 'Waiting...') {
-      // Host is waiting — do nothing. Partner will initiate the connection.
-      AppLogger.i('Host is waiting for partner — sync timer NOT started.', tag: 'PartnerSync');
+      AppLogger.i('Host waiting — polling every 10s for partner join.', tag: 'PartnerSync');
+      _syncTimer = Timer.periodic(const Duration(seconds: 10), (timer) async {
+        if (!state.isConnected) { timer.cancel(); return; }
+        if (state.partnerName != 'Waiting...') { timer.cancel(); return; }
+        if (state.isSyncing) return; // don't overlap
+
+        final partnerArrived = await _checkPartnerDataExists();
+        if (partnerArrived) {
+          timer.cancel();
+          AppLogger.i('Partner data detected — starting full sync.', tag: 'PartnerSync');
+          // Full sync with flag to bypass the "Waiting..." guard
+          await syncNow(partnerJustJoined: true);
+        }
+      });
       return;
     }
-    // Both sides are connected — no auto-sync timer; user taps the sync icon manually.
-    // This keeps syncs intentional and prevents flooding GAS.
+
+    // Both connected — manual sync only (no auto-polling floods GAS).
     AppLogger.i('Both partners connected — manual sync available.', tag: 'PartnerSync');
+  }
+
+  /// Lightweight check: does partner's data key exist on GAS?
+  /// Makes a single GET request. Returns true if partner has uploaded their data.
+  Future<bool> _checkPartnerDataExists() async {
+    try {
+      final partnerSlot = state.mySlot == 'A' ? 'B' : 'A';
+      final key = '${state.roomCode}__${partnerSlot}_data';
+      final baseUri = Uri.parse(state.webAppUrl);
+      final uri = baseUri.replace(queryParameters: {
+        ...Map<String, dynamic>.from(baseUri.queryParameters),
+        'action': 'get',
+        'key': key,
+      });
+      final response = await http.get(uri).timeout(const Duration(seconds: 10));
+      if (response.statusCode == 200) {
+        final body = response.body.trim();
+        // Data exists if it's not a 404/empty/error and looks like valid base64url
+        return body.isNotEmpty &&
+            body != '404' &&
+            !body.startsWith('error:') &&
+            !body.startsWith('Filter error') &&
+            !body.startsWith('<!DOCTYPE') &&
+            !body.startsWith('<html') &&
+            RegExp(r'^[A-Za-z0-9\-_]').hasMatch(body);
+      }
+    } catch (e) {
+      AppLogger.w('Partner data check failed: $e', tag: 'PartnerSync');
+    }
+    return false;
   }
 
   void _stopSyncTimer() {
@@ -483,7 +526,7 @@ class PartnerSyncNotifier extends StateNotifier<PartnerSyncState> {
     }
   }
 
-  Future<bool> syncNow() async {
+  Future<bool> syncNow({bool partnerJustJoined = false}) async {
     if (!state.isConnected) return false;
     if (state.isSyncing) {
       debugPrint('[PartnerSync] Already syncing, skipping duplicate syncNow execution.');
@@ -503,9 +546,9 @@ class PartnerSyncNotifier extends StateNotifier<PartnerSyncState> {
       await _uploadData(localPayload);
       await AppDatabase.clearSyncQueue();
 
-      // HOST waiting for partner: upload-only, no download attempt.
-      // Partner hasn't uploaded their data yet — trying to download gives GAS errors.
-      if (state.mySlot == 'A' && state.partnerName == 'Waiting...') {
+      // HOST waiting for partner: upload-only guard.
+      // Skip if partnerJustJoined=true (called by polling timer after detecting partner data).
+      if (!partnerJustJoined && state.mySlot == 'A' && state.partnerName == 'Waiting...') {
         AppLogger.i('Host upload complete — waiting for partner to join.', tag: 'PartnerSync');
         state = state.copyWith(
           isSyncing: false,
