@@ -83,7 +83,7 @@ function getOrCreateSheet() {
     sheet = ss.insertSheet('SyncData');
     sheet.appendRow(['Key', 'Value', 'UpdatedAt']);
     sheet.setFrozenRows(1);
-    sheet.getRange('B:B').setNumberFormat('@STRING@');
+    sheet.getRange('B:B').setNumberFormat('@');
   }
   return sheet;
 }

@@ -97,7 +97,7 @@ function getOrCreateSheet() {
     sheet = ss.insertSheet("SyncData");
     sheet.appendRow(["Key", "Value", "UpdatedAt"]);
     sheet.setFrozenRows(1);
-    sheet.getRange("B:B").setNumberFormat("@STRING@");
+    sheet.getRange("B:B").setNumberFormat("@");
   }
   return sheet;
 }
@@ -988,36 +988,72 @@ class _PartnersPageState extends ConsumerState<PartnersPage> with SingleTickerPr
             const SizedBox(height: 20),
 
             const Divider(),
-            const SizedBox(height: 16),
-            Row(
-              mainAxisAlignment: MainAxisAlignment.center,
-              children: [
-                if (syncState.isSyncing)
-                  const SizedBox(
-                    width: 14,
-                    height: 14,
-                    child: CircularProgressIndicator(strokeWidth: 2, color: Color(0xFFE53935)),
-                  )
-                else
-                  IconButton(
-                    icon: const Icon(Icons.refresh, size: 20, color: Color(0xFFE53935)),
-                    onPressed: _manualSync,
-                    tooltip: 'Check if partner has joined',
+            const SizedBox(height: 20),
+
+            // Waiting indicator — host is idle, no sync button shown
+            Container(
+              padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 16),
+              decoration: BoxDecoration(
+                color: isDark ? const Color(0xFF1E1E2E) : const Color(0xFFF0F0F8),
+                borderRadius: BorderRadius.circular(16),
+                border: Border.all(color: const Color(0xFFE53935).withValues(alpha: 0.3)),
+              ),
+              child: Row(
+                children: [
+                  TweenAnimationBuilder<double>(
+                    tween: Tween(begin: 0.4, end: 1.0),
+                    duration: const Duration(milliseconds: 800),
+                    curve: Curves.easeInOut,
+                    onEnd: () => setState(() {}),
+                    builder: (context, val, _) => Opacity(
+                      opacity: val,
+                      child: Container(
+                        width: 12, height: 12,
+                        decoration: const BoxDecoration(
+                          color: Colors.amber, shape: BoxShape.circle,
+                        ),
+                      ),
+                    ),
                   ),
-                const SizedBox(width: 10),
-                Text(
-                  'Waiting for partner to join...',
-                  style: TextStyle(fontSize: 13, color: subTextColor, fontStyle: FontStyle.italic),
-                ),
-              ],
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text('Your data is ready & uploaded ✓',
+                          style: TextStyle(fontSize: 13, fontWeight: FontWeight.bold, color: textColor)),
+                        const SizedBox(height: 4),
+                        Text('Waiting for your partner to open the app and paste the invite code...',
+                          style: TextStyle(fontSize: 12, color: subTextColor, height: 1.4)),
+                      ],
+                    ),
+                  ),
+                ],
+              ),
             ),
+
             if (syncState.errorMessage != null)
               Padding(
                 padding: const EdgeInsets.only(top: 12.0),
-                child: Text(
-                  syncState.errorMessage!,
-                  textAlign: TextAlign.center,
-                  style: const TextStyle(fontSize: 12, color: Color(0xFFE53935), fontWeight: FontWeight.w600),
+                child: Container(
+                  padding: const EdgeInsets.all(12),
+                  decoration: BoxDecoration(
+                    color: const Color(0xFFE53935).withValues(alpha: 0.08),
+                    borderRadius: BorderRadius.circular(12),
+                    border: Border.all(color: const Color(0xFFE53935).withValues(alpha: 0.3)),
+                  ),
+                  child: Row(
+                    children: [
+                      const Icon(Icons.error_outline, color: Color(0xFFE53935), size: 18),
+                      const SizedBox(width: 8),
+                      Expanded(
+                        child: Text(
+                          syncState.errorMessage!,
+                          style: const TextStyle(fontSize: 12, color: Color(0xFFE53935)),
+                        ),
+                      ),
+                    ],
+                  ),
                 ),
               ),
             const SizedBox(height: 32),

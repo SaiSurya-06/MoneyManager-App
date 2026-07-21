@@ -324,17 +324,19 @@ class PartnerSyncNotifier extends StateNotifier<PartnerSyncState> {
 
   void _startSyncTimer() {
     _syncTimer?.cancel();
-    if (state.isConnected && state.mySlot == 'A' && state.partnerName == 'Waiting...') {
-      // Start a slow periodic background timer only while the host is waiting for a partner.
-      // Once the partner joins, this timer is stopped immediately.
-      _syncTimer = Timer.periodic(const Duration(seconds: 5), (timer) {
-        if (state.isConnected && state.mySlot == 'A' && state.partnerName == 'Waiting...') {
-          syncNow();
-        } else {
-          _stopSyncTimer();
-        }
-      });
+    // HOST (slot A) in Waiting state: sit completely idle.
+    // Do NOT start a polling timer — the host has already uploaded their data once
+    // via generateInviteCode. The partner will download it when they join.
+    // Only start the timer when both sides are connected (partnerName is real).
+    if (!state.isConnected) return;
+    if (state.mySlot == 'A' && state.partnerName == 'Waiting...') {
+      // Host is waiting — do nothing. Partner will initiate the connection.
+      AppLogger.i('Host is waiting for partner — sync timer NOT started.', tag: 'PartnerSync');
+      return;
     }
+    // Both sides are connected — no auto-sync timer; user taps the sync icon manually.
+    // This keeps syncs intentional and prevents flooding GAS.
+    AppLogger.i('Both partners connected — manual sync available.', tag: 'PartnerSync');
   }
 
   void _stopSyncTimer() {
@@ -496,11 +498,24 @@ class PartnerSyncNotifier extends StateNotifier<PartnerSyncState> {
         syncStatusMessage: 'Preparing sync payload...',
       );
 
-      // 1. Export local data ONLY if there are local changes, or if it's the first sync
-      // Always generate and upload local payload to ensure data integrity and send any local updates
+      // 1. Always upload local data so partner can always pull fresh host data
       final localPayload = await _generateLocalPayload();
       await _uploadData(localPayload);
       await AppDatabase.clearSyncQueue();
+
+      // HOST waiting for partner: upload-only, no download attempt.
+      // Partner hasn't uploaded their data yet — trying to download gives GAS errors.
+      if (state.mySlot == 'A' && state.partnerName == 'Waiting...') {
+        AppLogger.i('Host upload complete — waiting for partner to join.', tag: 'PartnerSync');
+        state = state.copyWith(
+          isSyncing: false,
+          syncProgress: 1.0,
+          syncStatusMessage: 'Your data is ready — waiting for partner to connect...',
+          lastSyncTime: DateTime.now(),
+        );
+        await _saveStateLocally();
+        return true;
+      }
 
       // 2. Import partner data (supports incremental sync)
       final partnerDataStr = await _downloadData();
@@ -897,19 +912,21 @@ class PartnerSyncNotifier extends StateNotifier<PartnerSyncState> {
 
     var trimmed = responseBody.trim();
 
-    // GAS HTML error page - script issue
+    // GAS HTML error page — script needs redeployment
     if (trimmed.startsWith('<!DOCTYPE') || trimmed.startsWith('<html')) {
-      AppLogger.e('GAS script returned HTML error - please redeploy your Web App', tag: 'PartnerSync');
-      state = state.copyWith(
-        errorMessage: 'Web App script error. Please redeploy your Google Apps Script.',
-        isSyncing: false,
-      );
-      return null;
+      AppLogger.e('GAS returned HTML error page — redeploy Web App', tag: 'PartnerSync');
+      return null;  // Silently ignore, don't crash sync
     }
 
-    if (trimmed == '404' || trimmed.isEmpty) {
-      AppLogger.i('No partner payload on server yet (404)', tag: 'PartnerSync');
+    // GAS plain-text error responses (e.g. 'Filter error, bad data', 'error: ...')
+    if (trimmed.isEmpty || trimmed == '404') {
+      AppLogger.i('No partner data on server yet.', tag: 'PartnerSync');
       return null;
+    }
+    if (trimmed.startsWith('error:') || trimmed.startsWith('Filter error') ||
+        trimmed.startsWith('Exception') || trimmed.startsWith('TypeError')) {
+      AppLogger.w('GAS returned error: $trimmed — partner may not have synced yet.', tag: 'PartnerSync');
+      return null;  // Partner hasn't uploaded yet — treat as no-data, don't crash
     }
 
     // Strip leading apostrophe that old GAS template adds to prevent number conversion
@@ -917,13 +934,12 @@ class PartnerSyncNotifier extends StateNotifier<PartnerSyncState> {
       trimmed = trimmed.substring(1);
     }
 
-    if (trimmed.startsWith('{"changes":')) {
-      final decoded = jsonDecode(trimmed) as Map<String, dynamic>;
-      final isIncremental = decoded['isIncremental'] as bool? ?? false;
-      if (isIncremental && (decoded['changes'] as List).isEmpty) {
-        return null;
-      }
-      return trimmed;
+    // Must start with a valid compressed payload char (base64url: A-Z, a-z, 0-9, -, _)
+    final firstChar = trimmed.isNotEmpty ? trimmed[0] : '';
+    final isBase64Url = RegExp(r'^[A-Za-z0-9\-_]').hasMatch(firstChar);
+    if (!isBase64Url) {
+      AppLogger.w('Partner payload has unexpected format (first char: $firstChar) — ignoring.', tag: 'PartnerSync');
+      return null;
     }
 
     return trimmed;
