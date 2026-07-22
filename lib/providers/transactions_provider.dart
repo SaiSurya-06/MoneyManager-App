@@ -796,8 +796,19 @@ class TransactionsNotifier extends StateNotifier<TransactionsState> {
       if (state.filterType != null && tx.type != state.filterType) {
         return false;
       }
-      if (state.filterAccountId != null && tx.accountId != state.filterAccountId) {
-        return false;
+      if (state.filterAccountId != null) {
+        if (tx.type == 'transfer') {
+          final destId = tx.effectiveDestinationAccountId;
+          final isSource = tx.accountId == state.filterAccountId;
+          final isDest = destId != null && destId == state.filterAccountId;
+          if (!isSource && !isDest) {
+            return false;
+          }
+        } else {
+          if (tx.accountId != state.filterAccountId) {
+            return false;
+          }
+        }
       }
       if (state.filterCategoryId != null && tx.categoryId != state.filterCategoryId) {
         return false;
@@ -889,7 +900,13 @@ class TransactionsNotifier extends StateNotifier<TransactionsState> {
       // Filter transactions to export by account
       List<Transaction> exportTxs = allTxs;
       if (filterAccountId != null) {
-        exportTxs = exportTxs.where((tx) => tx.accountId == filterAccountId).toList();
+        exportTxs = exportTxs.where((tx) {
+          if (tx.type == 'transfer') {
+            final destId = tx.effectiveDestinationAccountId;
+            return tx.accountId == filterAccountId || (destId != null && destId == filterAccountId);
+          }
+          return tx.accountId == filterAccountId;
+        }).toList();
       }
 
       // Compute balances
@@ -913,17 +930,11 @@ class TransactionsNotifier extends StateNotifier<TransactionsState> {
             txNet = -tx.amount;
           } else if (tx.type == 'transfer') {
             if (filterAccountId != null) {
+              final destId = tx.effectiveDestinationAccountId;
               if (tx.accountId == filterAccountId) {
                 txNet = -tx.amount;
-              } else {
-                final regExp = RegExp(r'Transfer to target account ID: (\d+)');
-                final match = regExp.firstMatch(tx.note ?? '');
-                if (match != null) {
-                  final destId = int.tryParse(match.group(1) ?? '');
-                  if (destId == filterAccountId) {
-                    txNet = tx.amount;
-                  }
-                }
+              } else if (destId == filterAccountId) {
+                txNet = tx.amount;
               }
             } else {
               txNet = 0.0; // Overall transfers sum to 0
@@ -970,14 +981,32 @@ class TransactionsNotifier extends StateNotifier<TransactionsState> {
 
       for (var tx in exportTxs) {
         final categoryName = categoryMap[tx.categoryId] ?? 'Other';
-        final accountName = accountMap[tx.accountId] ?? 'Account';
+        final sourceAccName = accountMap[tx.accountId] ?? 'Account';
+        String accNameStr = sourceAccName;
+        double displayAmount = tx.amount;
+
+        if (tx.type == 'transfer') {
+          final destId = tx.effectiveDestinationAccountId;
+          final destAccName = destId != null ? accountMap[destId] : null;
+          if (destAccName != null) {
+            accNameStr = '$sourceAccName ➔ $destAccName';
+          }
+          if (filterAccountId != null && destId == filterAccountId) {
+            displayAmount = tx.amount; // Credit (+)
+          } else {
+            displayAmount = -tx.amount; // Debit (-)
+          }
+        } else if (tx.type == 'expense') {
+          displayAmount = -tx.amount;
+        }
+
         csvData.add([
           tx.date.toIso8601String().substring(0, 10),
           tx.title,
-          tx.amount,
+          displayAmount,
           tx.type,
           categoryName,
-          accountName,
+          accNameStr,
           tx.note ?? '',
           tx.recurrence,
           tx.recurrenceEndDate?.toIso8601String().substring(0, 10) ?? '',
@@ -1018,13 +1047,13 @@ class TransactionsNotifier extends StateNotifier<TransactionsState> {
       state = state.copyWith(isLoading: true);
       final db = await AppDatabase.instance.database;
 
-      List<Transaction> exportTxs = state.transactions;
+      List<Transaction> exportTxs = getFilteredTransactions();
       if (dateRange != null) {
         final start = dateRange.start;
         final end = dateRange.end;
         final startOfDay = DateTime(start.year, start.month, start.day);
         final endOfDay = DateTime(end.year, end.month, end.day, 23, 59, 59, 999);
-        exportTxs = state.transactions.where((tx) {
+        exportTxs = exportTxs.where((tx) {
           return (tx.date.isAfter(startOfDay) || tx.date.isAtSameMomentAs(startOfDay)) &&
                  (tx.date.isBefore(endOfDay) || tx.date.isAtSameMomentAs(endOfDay));
         }).toList();

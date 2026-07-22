@@ -49,7 +49,7 @@ class _AccountTransactionsPageState extends ConsumerState<AccountTransactionsPag
       bool matchesAccount = false;
       if (tx.accountId == account.id) {
         matchesAccount = true;
-      } else if (tx.type == 'transfer' && tx.note != null && tx.note!.contains('Transfer to target account ID: ${account.id}')) {
+      } else if (tx.type == 'transfer' && tx.effectiveDestinationAccountId == account.id) {
         matchesAccount = true;
       } else if (tx.note != null && tx.note!.contains('Credit Card Payment to target account ID: ${account.id}')) {
         matchesAccount = true;
@@ -86,14 +86,16 @@ class _AccountTransactionsPageState extends ConsumerState<AccountTransactionsPag
       final backwardsTxs = List<Transaction>.from(accountTxs)..sort((a, b) => b.date.compareTo(a.date));
       for (var tx in backwardsTxs) {
         double change = 0.0;
-        if (tx.accountId == account.id) {
-          if (tx.type == 'income') {
+        if (tx.type == 'income') {
+          change = tx.amount;
+        } else if (tx.type == 'expense') {
+          change = -tx.amount;
+        } else if (tx.type == 'transfer') {
+          if (tx.effectiveDestinationAccountId == account.id) {
             change = tx.amount;
           } else {
             change = -tx.amount;
           }
-        } else {
-          change = tx.amount;
         }
         running -= change;
         values.insert(0, running);
@@ -400,6 +402,7 @@ class _AccountTransactionsPageState extends ConsumerState<AccountTransactionsPag
                               categoryIconKey: cat['icon'] as String,
                               accountName: account.name,
                               currency: currency,
+                              filterAccountId: account.id,
                               onTap: () {
                                 _openTransactionForm(context, tx);
                               },

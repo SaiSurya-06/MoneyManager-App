@@ -424,11 +424,20 @@ class _TransactionsPageState extends ConsumerState<TransactionsPage> {
 
     double totalIncome = 0.0;
     double totalExpense = 0.0;
+    final filterAccId = txState.filterAccountId;
+
     for (var tx in filteredTxs) {
       if (tx.type == 'income') {
         totalIncome += tx.amount;
       } else if (tx.type == 'expense') {
         totalExpense += tx.amount;
+      } else if (tx.type == 'transfer' && filterAccId != null) {
+        final destId = tx.effectiveDestinationAccountId;
+        if (destId == filterAccId) {
+          totalIncome += tx.amount;
+        } else if (tx.accountId == filterAccId) {
+          totalExpense += tx.amount;
+        }
       }
     }
 
@@ -905,7 +914,12 @@ class _TransactionsPageState extends ConsumerState<TransactionsPage> {
                               'icon': 'category'
                             };
 
-                            final accName = accountMap[tx.accountId] ?? 'Account';
+                            final sourceAccName = accountMap[tx.accountId] ?? 'Account';
+                            final destId = tx.effectiveDestinationAccountId;
+                            final destAccName = destId != null ? accountMap[destId] : null;
+                            final accName = (tx.type == 'transfer' && destAccName != null)
+                                ? '$sourceAccName ➔ $destAccName'
+                                : sourceAccName;
                             final isSelected = _selectedTxs.contains(tx);
 
                             final listItem = TransactionListItem(
@@ -915,6 +929,7 @@ class _TransactionsPageState extends ConsumerState<TransactionsPage> {
                               categoryIconKey: cat['icon'] as String,
                               accountName: accName,
                               currency: currency,
+                              filterAccountId: txState.filterAccountId,
                               onTap: () {
                                 if (_isSelectionMode) {
                                   setState(() {

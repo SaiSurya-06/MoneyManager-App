@@ -12,6 +12,7 @@ class TransactionListItem extends StatelessWidget {
   final String categoryIconKey;
   final String accountName;
   final String currency;
+  final int? filterAccountId;
   final VoidCallback onTap;
   final VoidCallback onLongPress;
   final DismissDirectionCallback? onDismissed;
@@ -25,6 +26,7 @@ class TransactionListItem extends StatelessWidget {
     required this.categoryIconKey,
     required this.accountName,
     required this.currency,
+    this.filterAccountId,
     required this.onTap,
     required this.onLongPress,
     this.onDismissed,
@@ -42,6 +44,10 @@ class TransactionListItem extends StatelessWidget {
     final color = Color(int.tryParse(hex) ?? 0xFF757575);
     final isIncome = transaction.type == 'income';
     final isTransfer = transaction.type == 'transfer';
+    final isCreditTransfer = isTransfer &&
+        filterAccountId != null &&
+        transaction.effectiveDestinationAccountId == filterAccountId;
+    final isPositive = isIncome || isCreditTransfer;
     final isVirtual = transaction.id != null && transaction.id! < 0;
 
     final tagList = transaction.tags
@@ -163,13 +169,15 @@ class TransactionListItem extends StatelessWidget {
             crossAxisAlignment: CrossAxisAlignment.end,
             children: [
               Text(
-                '${isIncome ? '+' : '-'}${CurrencyFormatter.format(transaction.amount, currency)}',
+                '${isPositive ? '+' : '-'}${CurrencyFormatter.format(transaction.amount, currency)}',
                 style: TextStyle(
                   fontWeight: FontWeight.bold,
                   fontSize: 15,
                   color: isIncome
                       ? Colors.green
-                      : (isTransfer ? Colors.blue : const Color(0xFFE53935)),
+                      : (isTransfer
+                          ? (isCreditTransfer ? Colors.green : Colors.blue)
+                          : const Color(0xFFE53935)),
                   fontFamily: 'Inter',
                 ),
               ),

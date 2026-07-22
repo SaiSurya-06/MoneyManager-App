@@ -44,4 +44,16 @@ class Transaction with _$Transaction {
     adjustedMap['amount'] = ((map['amount'] as num).toDouble() * 100.0).roundToDouble() / 100.0;
     return Transaction.fromJson(adjustedMap);
   }
+
+  int? get effectiveDestinationAccountId {
+    if (transferToAccountId != null) return transferToAccountId;
+    if (note != null && note!.isNotEmpty) {
+      final regExp = RegExp(r'Transfer to target account ID:\s*(\d+)', caseSensitive: false);
+      final match = regExp.firstMatch(note!);
+      if (match != null) {
+        return int.tryParse(match.group(1) ?? '');
+      }
+    }
+    return null;
+  }
 }
