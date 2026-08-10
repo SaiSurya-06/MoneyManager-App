@@ -27,7 +27,8 @@ class TransactionsState {
   
   // Filter settings
   final String? filterType; // 'income', 'expense', 'transfer'
-  final int? filterAccountId;
+  final List<int> filterAccountIds;
+  int? get filterAccountId => filterAccountIds.length == 1 ? filterAccountIds.first : null;
   final int? filterCategoryId;
   final int? filterSubcategoryId;
   final DateTimeRange? filterDateRange;
@@ -44,7 +45,7 @@ class TransactionsState {
     this.errorMessage,
     this.sortAscending = false,
     this.filterType,
-    this.filterAccountId,
+    this.filterAccountIds = const [],
     this.filterCategoryId,
     this.filterSubcategoryId,
     this.filterDateRange,
@@ -63,6 +64,7 @@ class TransactionsState {
     bool? sortAscending,
     String? filterType,
     int? filterAccountId,
+    List<int>? filterAccountIds,
     int? filterCategoryId,
     int? filterSubcategoryId,
     DateTimeRange? filterDateRange,
@@ -79,6 +81,17 @@ class TransactionsState {
     bool clearMinAmount = false,
     bool clearMaxAmount = false,
   }) {
+    List<int> resolvedAccountIds;
+    if (clearAccount) {
+      resolvedAccountIds = const [];
+    } else if (filterAccountIds != null) {
+      resolvedAccountIds = filterAccountIds;
+    } else if (filterAccountId != null) {
+      resolvedAccountIds = [filterAccountId];
+    } else {
+      resolvedAccountIds = this.filterAccountIds;
+    }
+
     return TransactionsState(
       transactions: transactions ?? this.transactions,
       projectedTransactions: projectedTransactions ?? this.projectedTransactions,
@@ -86,7 +99,7 @@ class TransactionsState {
       errorMessage: errorMessage,
       sortAscending: sortAscending ?? this.sortAscending,
       filterType: clearType ? null : (filterType ?? this.filterType),
-      filterAccountId: clearAccount ? null : (filterAccountId ?? this.filterAccountId),
+      filterAccountIds: resolvedAccountIds,
       filterCategoryId: clearCategory ? null : (filterCategoryId ?? this.filterCategoryId),
       filterSubcategoryId: clearSubcategory ? null : (filterSubcategoryId ?? this.filterSubcategoryId),
       filterDateRange: clearDateRange ? null : (filterDateRange ?? this.filterDateRange),
@@ -642,8 +655,26 @@ class TransactionsNotifier extends StateNotifier<TransactionsState> {
     if (accountId == null) {
       state = state.copyWith(clearAccount: true);
     } else {
-      state = state.copyWith(filterAccountId: accountId);
+      state = state.copyWith(filterAccountIds: [accountId]);
     }
+  }
+
+  void setFilterAccounts(List<int> accountIds) {
+    if (accountIds.isEmpty) {
+      state = state.copyWith(clearAccount: true);
+    } else {
+      state = state.copyWith(filterAccountIds: accountIds);
+    }
+  }
+
+  void toggleFilterAccount(int accountId) {
+    final current = List<int>.from(state.filterAccountIds);
+    if (current.contains(accountId)) {
+      current.remove(accountId);
+    } else {
+      current.add(accountId);
+    }
+    setFilterAccounts(current);
   }
 
   void setFilterCategory(int? categoryId) {
@@ -710,6 +741,7 @@ class TransactionsNotifier extends StateNotifier<TransactionsState> {
       final filtersMap = {
         'filterType': state.filterType,
         'filterAccountId': state.filterAccountId,
+        'filterAccountIds': state.filterAccountIds,
         'filterCategoryId': state.filterCategoryId,
         'filterSubcategoryId': state.filterSubcategoryId,
         'minAmount': state.minAmount,
@@ -738,16 +770,23 @@ class TransactionsNotifier extends StateNotifier<TransactionsState> {
   }
 
   void applyPreset(Map<String, dynamic> filters) {
+    List<int> accountIds = [];
+    if (filters['filterAccountIds'] != null) {
+      accountIds = List<int>.from(filters['filterAccountIds']);
+    } else if (filters['filterAccountId'] != null) {
+      accountIds = [filters['filterAccountId'] as int];
+    }
+
     state = state.copyWith(
       filterType: filters['filterType'] as String?,
-      filterAccountId: filters['filterAccountId'] as int?,
+      filterAccountIds: accountIds,
       filterCategoryId: filters['filterCategoryId'] as int?,
       filterSubcategoryId: filters['filterSubcategoryId'] as int?,
       minAmount: (filters['minAmount'] as num?)?.toDouble(),
       maxAmount: (filters['maxAmount'] as num?)?.toDouble(),
       selectedTags: List<String>.from(filters['selectedTags'] ?? []),
       clearType: filters['filterType'] == null,
-      clearAccount: filters['filterAccountId'] == null,
+      clearAccount: accountIds.isEmpty,
       clearCategory: filters['filterCategoryId'] == null,
       clearSubcategory: filters['filterSubcategoryId'] == null,
       clearMinAmount: filters['minAmount'] == null,
@@ -796,16 +835,16 @@ class TransactionsNotifier extends StateNotifier<TransactionsState> {
       if (state.filterType != null && tx.type != state.filterType) {
         return false;
       }
-      if (state.filterAccountId != null) {
+      if (state.filterAccountIds.isNotEmpty) {
         if (tx.type == 'transfer') {
           final destId = tx.effectiveDestinationAccountId;
-          final isSource = tx.accountId == state.filterAccountId;
-          final isDest = destId != null && destId == state.filterAccountId;
+          final isSource = state.filterAccountIds.contains(tx.accountId);
+          final isDest = destId != null && state.filterAccountIds.contains(destId);
           if (!isSource && !isDest) {
             return false;
           }
         } else {
-          if (tx.accountId != state.filterAccountId) {
+          if (!state.filterAccountIds.contains(tx.accountId)) {
             return false;
           }
         }

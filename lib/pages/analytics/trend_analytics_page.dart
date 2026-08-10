@@ -26,6 +26,7 @@ import 'widgets/projections_tab.dart';
 import 'widgets/merchants_tags_tab.dart';
 import 'widgets/monthly_reports_tab.dart';
 import 'widgets/trends_tab.dart';
+import 'widgets/lifestyle_inflation_tab.dart';
 
 class DerivedAnalyticsValues {
   final double healthScore;
@@ -476,6 +477,7 @@ class _TrendAnalyticsPageState extends ConsumerState<TrendAnalyticsPage> {
                     _buildTabPill(4, 'Merchants & Tags', Icons.tag_outlined),
                     _buildTabPill(5, 'Monthly Reports', Icons.picture_as_pdf_outlined),
                     _buildTabPill(6, 'Trends', Icons.trending_up),
+                    _buildTabPill(7, 'Lifestyle Inflation', Icons.local_fire_department),
                   ],
                 ),
               ),
@@ -504,6 +506,8 @@ class _TrendAnalyticsPageState extends ConsumerState<TrendAnalyticsPage> {
                             return const MonthlyReportsTab();
                           case 6:
                             return const TrendsTab();
+                          case 7:
+                            return const LifestyleInflationTab();
                           default:
                             return const SizedBox.shrink();
                         }

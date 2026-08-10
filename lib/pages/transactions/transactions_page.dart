@@ -1087,73 +1087,164 @@ class _TransactionsPageState extends ConsumerState<TransactionsPage> {
     );
   }
 
+  void _showMultiAccountFilterModal(BuildContext context, List<Account> accounts) {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    showModalBottomSheet(
+      context: context,
+      backgroundColor: isDark ? const Color(0xFF161625) : Colors.white,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
+      ),
+      builder: (context) {
+        return Consumer(
+          builder: (context, ref, child) {
+            final txState = ref.watch(transactionsProvider);
+            final selectedIds = txState.filterAccountIds;
+            final isAllSelected = selectedIds.isEmpty;
+
+            return Container(
+              padding: const EdgeInsets.all(20),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                    children: [
+                      const Text(
+                        'Filter by Accounts',
+                        style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold, fontFamily: 'Inter'),
+                      ),
+                      TextButton(
+                        onPressed: () {
+                          ref.read(transactionsProvider.notifier).setFilterAccounts([]);
+                        },
+                        child: const Text('Reset All', style: TextStyle(color: Color(0xFFE53935))),
+                      ),
+                    ],
+                  ),
+                  const Divider(),
+                  ListTile(
+                    leading: Icon(
+                      isAllSelected ? Icons.check_circle : Icons.radio_button_unchecked,
+                      color: isAllSelected ? const Color(0xFFE53935) : Colors.grey,
+                    ),
+                    title: const Text('All Accounts', style: TextStyle(fontWeight: FontWeight.bold)),
+                    onTap: () {
+                      ref.read(transactionsProvider.notifier).setFilterAccounts([]);
+                    },
+                  ),
+                  Flexible(
+                    child: ListView.builder(
+                      shrinkWrap: true,
+                      itemCount: accounts.length,
+                      itemBuilder: (context, index) {
+                        final acc = accounts[index];
+                        final isSelected = selectedIds.contains(acc.id);
+                        final hex = '0xFF${acc.color.replaceAll("#", "")}';
+                        final color = Color(int.tryParse(hex) ?? 0xFFE53935);
+
+                        return CheckboxListTile(
+                          activeColor: const Color(0xFFE53935),
+                          secondary: CircleAvatar(
+                            radius: 14,
+                            backgroundColor: color.withValues(alpha: 0.2),
+                            child: Icon(Icons.account_balance_wallet, size: 14, color: color),
+                          ),
+                          title: Text(acc.name, style: const TextStyle(fontSize: 14, fontWeight: FontWeight.w500)),
+                          subtitle: Text(acc.type, style: const TextStyle(fontSize: 11, color: Colors.grey)),
+                          value: isSelected,
+                          onChanged: (val) {
+                            if (acc.id != null) {
+                              ref.read(transactionsProvider.notifier).toggleFilterAccount(acc.id!);
+                            }
+                          },
+                        );
+                      },
+                    ),
+                  ),
+                  const SizedBox(height: 12),
+                  SizedBox(
+                    width: double.infinity,
+                    child: ElevatedButton(
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: const Color(0xFFE53935),
+                        foregroundColor: Colors.white,
+                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                        padding: const EdgeInsets.symmetric(vertical: 12),
+                      ),
+                      onPressed: () => Navigator.pop(context),
+                      child: const Text('Apply Filter', style: TextStyle(fontWeight: FontWeight.bold)),
+                    ),
+                  ),
+                ],
+              ),
+            );
+          },
+        );
+      },
+    );
+  }
+
   Widget _buildAccountSelectorChip(List<Account> accounts) {
     final txState = ref.watch(transactionsProvider);
     final isDark = Theme.of(context).brightness == Brightness.dark;
     
-    final selectedAccount = accounts.firstWhere(
-      (a) => a.id == txState.filterAccountId,
-      orElse: () => Account(name: 'All Accounts', type: 'Bank', balance: 0, icon: '', color: '', isShared: false, createdAt: DateTime.now()),
-    );
-    
-    final isSelected = txState.filterAccountId != null;
- 
-    return Theme(
-      data: Theme.of(context).copyWith(canvasColor: isDark ? const Color(0xFF161625) : Colors.white),
-      child: PopupMenuButton<int?>(
-        initialValue: txState.filterAccountId,
-        onSelected: (id) {
-          ref.read(transactionsProvider.notifier).setFilterAccount(id);
-        },
-        itemBuilder: (context) {
-          final items = <PopupMenuEntry<int?>>[
-            const PopupMenuItem<int?>(
-              value: null,
-              child: Text('All Accounts', style: TextStyle(fontSize: 13)),
-            ),
-            const PopupMenuDivider(),
-          ];
-          items.addAll(accounts.map((a) {
-            return PopupMenuItem<int?>(
-              value: a.id,
-              child: Text(a.name, style: const TextStyle(fontSize: 13)),
-            );
-          }));
-          return items;
-        },
-        child: Container(
-          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-          decoration: BoxDecoration(
+    final selectedIds = txState.filterAccountIds;
+    final isSelected = selectedIds.isNotEmpty;
+
+    String labelText = 'All Accounts';
+    if (selectedIds.length == 1) {
+      final acc = accounts.firstWhere(
+        (a) => a.id == selectedIds.first, 
+        orElse: () => Account(name: 'Account', type: 'Bank', balance: 0, icon: '', color: '', isShared: false, createdAt: DateTime.now()),
+      );
+      labelText = acc.name;
+    } else if (selectedIds.length > 1) {
+      labelText = '${selectedIds.length} Accounts';
+    }
+
+    return InkWell(
+      onTap: () => _showMultiAccountFilterModal(context, accounts),
+      borderRadius: BorderRadius.circular(10),
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+        decoration: BoxDecoration(
+          color: isSelected 
+              ? const Color(0xFFE53935) 
+              : (isDark ? const Color(0xFF1E1E2E) : Colors.black.withValues(alpha: 0.02)),
+          borderRadius: BorderRadius.circular(10),
+          border: Border.all(
             color: isSelected 
                 ? const Color(0xFFE53935) 
-                : (isDark ? const Color(0xFF1E1E2E) : Colors.black.withValues(alpha: 0.02)),
-            borderRadius: BorderRadius.circular(10),
-            border: Border.all(
-              color: isSelected 
-                  ? const Color(0xFFE53935) 
-                  : (isDark ? Colors.white.withValues(alpha: 0.04) : Colors.black.withValues(alpha: 0.04)),
+                : (isDark ? Colors.white.withValues(alpha: 0.04) : Colors.black.withValues(alpha: 0.04)),
+          ),
+        ),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(
+              Icons.account_balance_wallet_outlined,
+              size: 14,
+              color: isSelected ? Colors.white : Colors.grey,
             ),
-          ),
-          child: Row(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              Text(
-                selectedAccount.name,
-                style: TextStyle(
-                  color: isSelected ? Colors.white : (isDark ? Colors.white70 : Colors.black87),
-                  fontSize: 12,
-                  fontWeight: isSelected ? FontWeight.bold : FontWeight.normal,
-                  fontFamily: 'Inter',
-                ),
+            const SizedBox(width: 6),
+            Text(
+              labelText,
+              style: TextStyle(
+                color: isSelected ? Colors.white : (isDark ? Colors.white70 : Colors.black87),
+                fontSize: 12,
+                fontWeight: isSelected ? FontWeight.bold : FontWeight.normal,
+                fontFamily: 'Inter',
               ),
-              const SizedBox(width: 4),
-              Icon(
-                Icons.arrow_drop_down,
-                size: 14,
-                color: isSelected ? Colors.white : Colors.grey,
-              ),
-            ],
-          ),
+            ),
+            const SizedBox(width: 4),
+            Icon(
+              Icons.arrow_drop_down,
+              size: 14,
+              color: isSelected ? Colors.white : Colors.grey,
+            ),
+          ],
         ),
       ),
     );
@@ -1766,6 +1857,57 @@ class _AdvancedFiltersSheetState extends ConsumerState<AdvancedFiltersSheet> {
               onChanged: (RangeValues values) {
                 ref.read(transactionsProvider.notifier).setMinAmount(values.start == 0.0 ? null : values.start);
                 ref.read(transactionsProvider.notifier).setMaxAmount(values.end == maxTransactionAmount ? null : values.end);
+              },
+            ),
+            const SizedBox(height: 20),
+
+            const Text('Filter by Account', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 13, fontFamily: 'Inter')),
+            const SizedBox(height: 8),
+            Consumer(
+              builder: (context, ref, child) {
+                final accounts = ref.watch(accountsProvider).accounts;
+                final selectedIds = txState.filterAccountIds;
+                if (accounts.isEmpty) return const SizedBox.shrink();
+
+                return Wrap(
+                  spacing: 8,
+                  runSpacing: 4,
+                  children: [
+                    FilterChip(
+                      label: const Text('All Accounts'),
+                      selected: selectedIds.isEmpty,
+                      checkmarkColor: Colors.white,
+                      selectedColor: const Color(0xFFE53935),
+                      labelStyle: TextStyle(
+                        color: selectedIds.isEmpty ? Colors.white : (isDark ? Colors.white70 : Colors.black87),
+                        fontSize: 11,
+                        fontWeight: selectedIds.isEmpty ? FontWeight.bold : FontWeight.normal,
+                      ),
+                      onSelected: (_) {
+                        ref.read(transactionsProvider.notifier).setFilterAccounts([]);
+                      },
+                    ),
+                    ...accounts.map((acc) {
+                      final isSelected = selectedIds.contains(acc.id);
+                      return FilterChip(
+                        label: Text(acc.name),
+                        selected: isSelected,
+                        checkmarkColor: Colors.white,
+                        selectedColor: const Color(0xFFE53935),
+                        labelStyle: TextStyle(
+                          color: isSelected ? Colors.white : (isDark ? Colors.white70 : Colors.black87),
+                          fontSize: 11,
+                          fontWeight: isSelected ? FontWeight.bold : FontWeight.normal,
+                        ),
+                        onSelected: (_) {
+                          if (acc.id != null) {
+                            ref.read(transactionsProvider.notifier).toggleFilterAccount(acc.id!);
+                          }
+                        },
+                      );
+                    }),
+                  ],
+                );
               },
             ),
             const SizedBox(height: 20),

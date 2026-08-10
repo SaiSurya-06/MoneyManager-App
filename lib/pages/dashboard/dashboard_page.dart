@@ -15,6 +15,7 @@ import 'widgets/summary_cards.dart';
 import 'widgets/chart_section.dart';
 import 'widgets/calendar_widget.dart';
 import 'widgets/today_summary_card.dart';
+import 'widgets/credit_card_usage_card.dart';
 
 class DashboardPage extends ConsumerStatefulWidget {
   const DashboardPage({super.key});
@@ -221,7 +222,7 @@ class _DashboardPageState extends ConsumerState<DashboardPage> {
                   const SizedBox(height: 20),
 
                   // Today's Summary Section
-                  if (!analyticsState.isLoading)
+                  if (!analyticsState.isLoading) ...[
                     TodaySummaryCard(
                       todayIncome: analyticsState.todayIncome,
                       todayExpenses: analyticsState.todayExpenses,
@@ -231,6 +232,9 @@ class _DashboardPageState extends ConsumerState<DashboardPage> {
                       majorIncomeAmount: analyticsState.todayMajorIncomeAmount,
                       currency: currency,
                     ),
+                    const SizedBox(height: 20),
+                    const CreditCardUsageCard(),
+                  ],
                   
                   const SizedBox(height: 20),
 
