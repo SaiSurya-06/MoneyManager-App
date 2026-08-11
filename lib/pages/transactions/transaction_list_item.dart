@@ -40,6 +40,7 @@ class TransactionListItem extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
     final hex = '0xFF${categoryColorHex.replaceAll("#", "")}';
     final color = Color(int.tryParse(hex) ?? 0xFF757575);
     final isIncome = transaction.type == 'income';
@@ -174,9 +175,9 @@ class TransactionListItem extends StatelessWidget {
                   fontWeight: FontWeight.bold,
                   fontSize: 15,
                   color: isIncome
-                      ? Colors.green
+                      ? (isDark ? const Color(0xFF00E676) : const Color(0xFF2ECC71))
                       : (isTransfer
-                          ? (isCreditTransfer ? Colors.green : Colors.blue)
+                          ? (isCreditTransfer ? (isDark ? const Color(0xFF00E676) : const Color(0xFF2ECC71)) : (isDark ? const Color(0xFFFFD700) : const Color(0xFFD4AF37)))
                           : const Color(0xFFE53935)),
                   fontFamily: 'Inter',
                 ),

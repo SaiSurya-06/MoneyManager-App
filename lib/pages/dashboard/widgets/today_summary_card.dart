@@ -128,10 +128,10 @@ class TodaySummaryCard extends StatelessWidget {
                           Container(
                             padding: const EdgeInsets.all(6),
                             decoration: BoxDecoration(
-                              color: Colors.green.withValues(alpha: 0.12),
+                              color: (isDark ? const Color(0xFF00E676) : const Color(0xFF2ECC71)).withValues(alpha: 0.12),
                               shape: BoxShape.circle,
                             ),
-                            child: const Icon(Icons.arrow_downward, color: Colors.green, size: 14),
+                            child: Icon(Icons.arrow_downward, color: isDark ? const Color(0xFF00E676) : const Color(0xFF2ECC71), size: 14),
                           ),
                           const SizedBox(width: 8),
                           Expanded(

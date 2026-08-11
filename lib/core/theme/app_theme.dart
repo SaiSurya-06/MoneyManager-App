@@ -19,26 +19,31 @@ class AppTheme {
   // Brand Colors
   static const Color primaryRed = Color(0xFFE53935);
   static const Color accentRedGlow = Color(0x33E53935);
+  static const Color darkGold = Color(0xFFFFD700);
+  static const Color lightGold = Color(0xFFD4AF37);
 
   // Semantic Colors
-  static const Color successGreen = Color(0xFF4CAF50);
-  static const Color warningAmber = Color(0xFFFFC107);
+  static const Color darkIncomeGreen = Color(0xFF00E676);
+  static const Color lightIncomeGreen = Color(0xFF2ECC71);
+  static const Color successGreen = Color(0xFF00E676);
+  static const Color warningAmber = Color(0xFFFFD700);
   static const Color infoBlue = Color(0xFF2196F3);
   static const Color errorRed = Color(0xFFE53935);
+  static const Color expenseRed = Color(0xFFE53935);
   
-  // Dark Mode Colors
-  static const Color darkBg = Color(0xFF09090E);
-  static const Color darkSurface = Color(0xFF151521);
-  static const Color darkCardBg = Color(0x14FFFFFF); // Glassmorphism backdrop color (8% opacity)
+  // Dark Mode Colors (Deep Black, Red, Gold)
+  static const Color darkBg = Color(0xFF0B0B10);
+  static const Color darkSurface = Color(0xFF141420);
+  static const Color darkCardBg = Color(0x1AFFFFFF); // Glassmorphism backdrop color
   static const Color darkTextPrimary = Colors.white;
-  static const Color darkTextSecondary = Color(0xFFB0B0C0);
+  static const Color darkTextSecondary = Color(0xFFB0B0C5);
   
-  // Light Mode Colors
-  static const Color lightBg = Color(0xFFF5F5F7);
-  static const Color lightSurface = Colors.white;
-  static const Color lightCardBg = Color(0x1F000000); // Glassmorphism backdrop color
-  static const Color lightTextPrimary = Color(0xFF1A1A26);
-  static const Color lightTextSecondary = Color(0xFF6C6C7D);
+  // Light Mode Colors (Pristine White, Red, Gold)
+  static const Color lightBg = Color(0xFFFFFFFF);
+  static const Color lightSurface = Color(0xFFF8F9FA);
+  static const Color lightCardBg = Color(0x0FFFFFFF);
+  static const Color lightTextPrimary = Color(0xFF161622);
+  static const Color lightTextSecondary = Color(0xFF6C6C80);
 
   // Card Gradients
   static const LinearGradient redGradient = LinearGradient(
@@ -47,14 +52,20 @@ class AppTheme {
     end: Alignment.bottomRight,
   );
 
+  static const LinearGradient goldGradient = LinearGradient(
+    colors: [Color(0xFFFFD700), Color(0xFFD4AF37)],
+    begin: Alignment.topLeft,
+    end: Alignment.bottomRight,
+  );
+
   static const LinearGradient darkCardGradient = LinearGradient(
-    colors: [Color(0xFF1E1E30), Color(0xFF12121F)],
+    colors: [Color(0xFF1A1A2A), Color(0xFF10101C)],
     begin: Alignment.topLeft,
     end: Alignment.bottomRight,
   );
 
   static const LinearGradient lightCardGradient = LinearGradient(
-    colors: [Colors.white, Color(0xFFEEEEF0)],
+    colors: [Colors.white, Color(0xFFF4F4F8)],
     begin: Alignment.topLeft,
     end: Alignment.bottomRight,
   );

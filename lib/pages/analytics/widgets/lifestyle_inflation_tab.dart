@@ -539,19 +539,65 @@ class _LifestyleInflationTabState extends ConsumerState<LifestyleInflationTab> {
                           show: true,
                           topTitles: const AxisTitles(sideTitles: SideTitles(showTitles: false)),
                           rightTitles: const AxisTitles(sideTitles: SideTitles(showTitles: false)),
-                          bottomTitles: AxisTitles(
+                          leftTitles: AxisTitles(
+                            axisNameWidget: Text(
+                              'Amount',
+                              style: TextStyle(
+                                fontSize: 9,
+                                fontWeight: FontWeight.bold,
+                                color: isDark ? Colors.white54 : Colors.black54,
+                              ),
+                            ),
+                            axisNameSize: 14,
                             sideTitles: SideTitles(
                               showTitles: true,
+                              reservedSize: 40,
+                              getTitlesWidget: (value, meta) {
+                                if (value < 0) return const SizedBox();
+                                String text;
+                                if (value >= 1000000) {
+                                  text = '${(value / 1000000).toStringAsFixed(1)}M';
+                                } else if (value >= 1000) {
+                                  text = '${(value / 1000).toStringAsFixed(1)}k';
+                                } else {
+                                  text = value.toStringAsFixed(0);
+                                }
+                                return Text(
+                                  text,
+                                  style: TextStyle(
+                                    fontSize: 9,
+                                    color: isDark ? Colors.white54 : Colors.black54,
+                                  ),
+                                );
+                              },
+                            ),
+                          ),
+                          bottomTitles: AxisTitles(
+                            axisNameWidget: Padding(
+                              padding: const EdgeInsets.only(top: 2.0),
+                              child: Text(
+                                'Categories',
+                                style: TextStyle(
+                                  fontSize: 9,
+                                  fontWeight: FontWeight.bold,
+                                  color: isDark ? Colors.white54 : Colors.black54,
+                                ),
+                              ),
+                            ),
+                            axisNameSize: 16,
+                            sideTitles: SideTitles(
+                              showTitles: true,
+                              reservedSize: 20,
                               getTitlesWidget: (value, meta) {
                                 final idx = value.toInt();
                                 final top5 = itemBreakdown.take(5).toList();
                                 if (idx >= 0 && idx < top5.length) {
                                   final name = top5[idx].category.name;
                                   return Padding(
-                                    padding: const EdgeInsets.only(top: 8.0),
+                                    padding: const EdgeInsets.only(top: 4.0),
                                     child: Text(
                                       name.length > 7 ? '${name.substring(0, 6)}…' : name,
-                                      style: TextStyle(fontSize: 10, color: isDark ? Colors.white70 : Colors.black87),
+                                      style: TextStyle(fontSize: 9, color: isDark ? Colors.white70 : Colors.black87, fontWeight: FontWeight.bold),
                                     ),
                                   );
                                 }
@@ -559,10 +605,24 @@ class _LifestyleInflationTabState extends ConsumerState<LifestyleInflationTab> {
                               },
                             ),
                           ),
-                          leftTitles: const AxisTitles(sideTitles: SideTitles(showTitles: false)),
                         ),
-                        gridData: const FlGridData(show: false),
-                        borderData: FlBorderData(show: false),
+                        gridData: FlGridData(
+                          show: true,
+                          drawVerticalLine: false,
+                          drawHorizontalLine: true,
+                          getDrawingHorizontalLine: (value) => FlLine(
+                            color: isDark ? Colors.white.withValues(alpha: 0.05) : Colors.black.withValues(alpha: 0.05),
+                            strokeWidth: 1,
+                            dashArray: [4, 4],
+                          ),
+                        ),
+                        borderData: FlBorderData(
+                          show: true,
+                          border: Border(
+                            bottom: BorderSide(color: isDark ? Colors.white24 : Colors.black26, width: 1),
+                            left: BorderSide(color: isDark ? Colors.white24 : Colors.black26, width: 1),
+                          ),
+                        ),
                         barGroups: itemBreakdown.take(5).toList().asMap().entries.map((entry) {
                           final idx = entry.key;
                           final data = entry.value;

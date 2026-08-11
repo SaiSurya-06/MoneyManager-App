@@ -139,6 +139,16 @@ class _ChartSectionState extends ConsumerState<ChartSection> {
     }
   }
 
+  // Helper to format compact currency amounts for Y-axis ticks
+  String _formatCompactAmount(double value, String currency) {
+    if (value.abs() >= 1000000) {
+      return '${(value / 1000000).toStringAsFixed(1)}M';
+    } else if (value.abs() >= 1000) {
+      return '${(value / 1000).toStringAsFixed(1)}k';
+    }
+    return value.toStringAsFixed(0);
+  }
+
   // 1. Net Worth Trend (Line Chart)
   Widget _buildLineChart() {
     if (widget.netWorthData.isEmpty) {
@@ -148,103 +158,179 @@ class _ChartSectionState extends ConsumerState<ChartSection> {
     final isDark = Theme.of(context).brightness == Brightness.dark;
     final authState = ref.read(authProvider);
     final currency = authState.profile?.preferredCurrency ?? 'USD';
+    final goldColor = isDark ? const Color(0xFFFFD700) : const Color(0xFFD4AF37);
     
     // Map data points
     final List<FlSpot> spots = [];
+    double minY = double.infinity;
+    double maxY = -double.infinity;
     for (int i = 0; i < widget.netWorthData.length; i++) {
-      spots.add(FlSpot(i.toDouble(), widget.netWorthData[i].amount));
+      final amt = widget.netWorthData[i].amount;
+      if (amt < minY) minY = amt;
+      if (amt > maxY) maxY = amt;
+      spots.add(FlSpot(i.toDouble(), amt));
+    }
+    if (minY == double.infinity) minY = 0;
+    if (maxY == -double.infinity) maxY = 100;
+    if (minY == maxY) {
+      minY = 0;
+      maxY = maxY > 0 ? maxY * 1.5 : 100;
     }
 
-    return LineChart(
-      LineChartData(
-        gridData: FlGridData(
-          show: true,
-          drawVerticalLine: false,
-          getDrawingHorizontalLine: (value) {
-            return FlLine(
-              color: isDark ? Colors.white10 : Colors.black12,
-              strokeWidth: 1,
-            );
-          },
-        ),
-        titlesData: FlTitlesData(
-          show: true,
-          topTitles: const AxisTitles(sideTitles: SideTitles(showTitles: false)),
-          rightTitles: const AxisTitles(sideTitles: SideTitles(showTitles: false)),
-          leftTitles: const AxisTitles(sideTitles: SideTitles(showTitles: false)),
-          bottomTitles: AxisTitles(
-            sideTitles: SideTitles(
-              showTitles: true,
-              reservedSize: 22,
-              interval: mathMax(1.0, (spots.length / 5).floorToDouble()),
-              getTitlesWidget: (value, meta) {
-                final idx = value.toInt();
-                if (idx < 0 || idx >= widget.netWorthData.length) {
-                  return const SizedBox();
-                }
-                final date = widget.netWorthData[idx].date;
-                if (idx == 0 || idx == (spots.length / 2).floor() || idx == spots.length - 1) {
-                  return Padding(
-                    padding: const EdgeInsets.only(top: 4.0),
+    final yInterval = mathMax(1.0, ((maxY - minY) / 4).roundToDouble());
+
+    return Column(
+      children: [
+        Expanded(
+          child: LineChart(
+            LineChartData(
+              minY: minY < 0 ? minY * 1.1 : 0,
+              maxY: maxY * 1.15,
+              gridData: FlGridData(
+                show: true,
+                drawVerticalLine: true,
+                drawHorizontalLine: true,
+                getDrawingHorizontalLine: (value) => FlLine(
+                  color: isDark ? Colors.white.withValues(alpha: 0.06) : Colors.black.withValues(alpha: 0.06),
+                  strokeWidth: 1,
+                  dashArray: [4, 4],
+                ),
+                getDrawingVerticalLine: (value) => FlLine(
+                  color: isDark ? Colors.white.withValues(alpha: 0.04) : Colors.black.withValues(alpha: 0.04),
+                  strokeWidth: 1,
+                  dashArray: [4, 4],
+                ),
+              ),
+              titlesData: FlTitlesData(
+                show: true,
+                topTitles: const AxisTitles(sideTitles: SideTitles(showTitles: false)),
+                rightTitles: const AxisTitles(sideTitles: SideTitles(showTitles: false)),
+                leftTitles: AxisTitles(
+                  axisNameWidget: Text(
+                    'Net Worth',
+                    style: TextStyle(
+                      fontSize: 10,
+                      fontWeight: FontWeight.bold,
+                      color: isDark ? Colors.white54 : Colors.black54,
+                    ),
+                  ),
+                  axisNameSize: 16,
+                  sideTitles: SideTitles(
+                    showTitles: true,
+                    reservedSize: 42,
+                    interval: yInterval,
+                    getTitlesWidget: (value, meta) {
+                      return Text(
+                        _formatCompactAmount(value, currency),
+                        style: TextStyle(
+                          color: isDark ? Colors.white54 : Colors.black45,
+                          fontSize: 9,
+                          fontWeight: FontWeight.w600,
+                        ),
+                      );
+                    },
+                  ),
+                ),
+                bottomTitles: AxisTitles(
+                  axisNameWidget: Padding(
+                    padding: const EdgeInsets.only(top: 2.0),
                     child: Text(
-                      '${date.day}/${date.month}',
+                      'Timeline (Date)',
                       style: TextStyle(
-                        color: isDark ? Colors.white54 : Colors.black45,
-                        fontSize: 9,
-                        fontFamily: 'Inter',
+                        fontSize: 10,
+                        fontWeight: FontWeight.bold,
+                        color: isDark ? Colors.white54 : Colors.black54,
                       ),
                     ),
-                  );
-                }
-                return const SizedBox();
-              },
-            ),
-          ),
-        ),
-        borderData: FlBorderData(show: false),
-        lineBarsData: [
-          LineChartBarData(
-            spots: spots,
-            isCurved: true,
-            color: const Color(0xFFE53935),
-            barWidth: 3,
-            isStrokeCapRound: true,
-            dotData: const FlDotData(show: false),
-            belowBarData: BarAreaData(
-              show: true,
-              gradient: LinearGradient(
-                colors: [
-                  const Color(0xFFE53935).withValues(alpha: 0.2),
-                  const Color(0xFFE53935).withValues(alpha: 0.0),
-                ],
-                begin: Alignment.topCenter,
-                end: Alignment.bottomCenter,
+                  ),
+                  axisNameSize: 18,
+                  sideTitles: SideTitles(
+                    showTitles: true,
+                    reservedSize: 20,
+                    interval: mathMax(1.0, (spots.length / 5).floorToDouble()),
+                    getTitlesWidget: (value, meta) {
+                      final idx = value.toInt();
+                      if (idx < 0 || idx >= widget.netWorthData.length) {
+                        return const SizedBox();
+                      }
+                      final date = widget.netWorthData[idx].date;
+                      return Padding(
+                        padding: const EdgeInsets.only(top: 4.0),
+                        child: Text(
+                          '${date.day}/${date.month}',
+                          style: TextStyle(
+                            color: isDark ? Colors.white54 : Colors.black45,
+                            fontSize: 9,
+                            fontWeight: FontWeight.bold,
+                            fontFamily: 'Inter',
+                          ),
+                        ),
+                      );
+                    },
+                  ),
+                ),
+              ),
+              borderData: FlBorderData(
+                show: true,
+                border: Border(
+                  bottom: BorderSide(color: isDark ? Colors.white24 : Colors.black26, width: 1),
+                  left: BorderSide(color: isDark ? Colors.white24 : Colors.black26, width: 1),
+                ),
+              ),
+              lineBarsData: [
+                LineChartBarData(
+                  spots: spots,
+                  isCurved: true,
+                  color: goldColor,
+                  barWidth: 3,
+                  isStrokeCapRound: true,
+                  dotData: FlDotData(
+                    show: spots.length <= 15,
+                    getDotPainter: (spot, percent, barData, index) => FlDotCirclePainter(
+                      radius: 3,
+                      color: goldColor,
+                      strokeWidth: 1.5,
+                      strokeColor: isDark ? const Color(0xFF141420) : Colors.white,
+                    ),
+                  ),
+                  belowBarData: BarAreaData(
+                    show: true,
+                    gradient: LinearGradient(
+                      colors: [
+                        goldColor.withValues(alpha: 0.25),
+                        goldColor.withValues(alpha: 0.0),
+                      ],
+                      begin: Alignment.topCenter,
+                      end: Alignment.bottomCenter,
+                    ),
+                  ),
+                ),
+              ],
+              lineTouchData: LineTouchData(
+                touchTooltipData: LineTouchTooltipData(
+                  getTooltipColor: (_) => isDark ? const Color(0xFF1E1E2E) : Colors.white,
+                  getTooltipItems: (touchedSpots) {
+                    return touchedSpots.map((spot) {
+                      final amount = spot.y;
+                      final date = widget.netWorthData[spot.x.toInt()].date;
+                      final dateStr = '${date.day}/${date.month}/${date.year}';
+                      return LineTooltipItem(
+                        'Net Worth\n$dateStr\n${CurrencyFormatter.format(amount, currency)}',
+                        TextStyle(
+                          color: goldColor,
+                          fontWeight: FontWeight.bold,
+                          fontSize: 12,
+                          fontFamily: 'Inter',
+                        ),
+                      );
+                    }).toList();
+                  },
+                ),
               ),
             ),
           ),
-        ],
-        lineTouchData: LineTouchData(
-          touchTooltipData: LineTouchTooltipData(
-            getTooltipColor: (_) => isDark ? const Color(0xFF1E1E2E) : Colors.white,
-            getTooltipItems: (touchedSpots) {
-              return touchedSpots.map((spot) {
-                final amount = spot.y;
-                final date = widget.netWorthData[spot.x.toInt()].date;
-                final dateStr = '${date.day}/${date.month}/${date.year}';
-                return LineTooltipItem(
-                  'Net Worth\n$dateStr\n${CurrencyFormatter.format(amount, currency)}',
-                  TextStyle(
-                    color: isDark ? Colors.white : const Color(0xFF1A1A26),
-                    fontWeight: FontWeight.bold,
-                    fontSize: 12,
-                    fontFamily: 'Inter',
-                  ),
-                );
-              }).toList();
-            },
-          ),
         ),
-      ),
+      ],
     );
   }
 
@@ -258,6 +344,17 @@ class _ChartSectionState extends ConsumerState<ChartSection> {
     final authState = ref.read(authProvider);
     final currency = authState.profile?.preferredCurrency ?? 'USD';
 
+    final incomeColor = isDark ? const Color(0xFF00E676) : const Color(0xFF2ECC71);
+    const expenseColor = Color(0xFFE53935);
+
+    double maxVal = 0.0;
+    for (var d in widget.monthlyData) {
+      if (d.income > maxVal) maxVal = d.income;
+      if (d.expense > maxVal) maxVal = d.expense;
+    }
+    if (maxVal == 0) maxVal = 100;
+    final yInterval = mathMax(1.0, (maxVal / 4).roundToDouble());
+
     final barGroups = List.generate(widget.monthlyData.length, (i) {
       final data = widget.monthlyData[i];
       return BarChartGroupData(
@@ -265,13 +362,13 @@ class _ChartSectionState extends ConsumerState<ChartSection> {
         barRods: [
           BarChartRodData(
             toY: data.income,
-            color: Colors.green,
+            color: incomeColor,
             width: 8,
             borderRadius: BorderRadius.circular(4),
           ),
           BarChartRodData(
             toY: data.expense,
-            color: const Color(0xFFE53935),
+            color: expenseColor,
             width: 8,
             borderRadius: BorderRadius.circular(4),
           ),
@@ -279,59 +376,135 @@ class _ChartSectionState extends ConsumerState<ChartSection> {
       );
     });
 
-    return BarChart(
-      BarChartData(
-        barGroups: barGroups,
-        titlesData: FlTitlesData(
-          show: true,
-          topTitles: const AxisTitles(sideTitles: SideTitles(showTitles: false)),
-          rightTitles: const AxisTitles(sideTitles: SideTitles(showTitles: false)),
-          leftTitles: const AxisTitles(sideTitles: SideTitles(showTitles: false)),
-          bottomTitles: AxisTitles(
-            sideTitles: SideTitles(
-              showTitles: true,
-              getTitlesWidget: (value, meta) {
-                final idx = value.toInt();
-                if (idx < 0 || idx >= widget.monthlyData.length) {
-                  return const SizedBox();
-                }
-                return Padding(
-                  padding: const EdgeInsets.only(top: 6.0),
-                  child: Text(
-                    widget.monthlyData[idx].month,
+    return Column(
+      children: [
+        // Legend Header Row
+        Padding(
+          padding: const EdgeInsets.only(bottom: 8.0),
+          child: Row(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              Container(width: 10, height: 10, decoration: BoxDecoration(color: incomeColor, shape: BoxShape.circle)),
+              const SizedBox(width: 4),
+              Text('Income', style: TextStyle(fontSize: 10, fontWeight: FontWeight.bold, color: isDark ? Colors.white70 : Colors.black87)),
+              const SizedBox(width: 16),
+              Container(width: 10, height: 10, decoration: const BoxDecoration(color: expenseColor, shape: BoxShape.circle)),
+              const SizedBox(width: 4),
+              Text('Expenses', style: TextStyle(fontSize: 10, fontWeight: FontWeight.bold, color: isDark ? Colors.white70 : Colors.black87)),
+            ],
+          ),
+        ),
+        Expanded(
+          child: BarChart(
+            BarChartData(
+              maxY: maxVal * 1.15,
+              barGroups: barGroups,
+              gridData: FlGridData(
+                show: true,
+                drawVerticalLine: false,
+                drawHorizontalLine: true,
+                getDrawingHorizontalLine: (value) => FlLine(
+                  color: isDark ? Colors.white.withValues(alpha: 0.06) : Colors.black.withValues(alpha: 0.06),
+                  strokeWidth: 1,
+                  dashArray: [4, 4],
+                ),
+              ),
+              titlesData: FlTitlesData(
+                show: true,
+                topTitles: const AxisTitles(sideTitles: SideTitles(showTitles: false)),
+                rightTitles: const AxisTitles(sideTitles: SideTitles(showTitles: false)),
+                leftTitles: AxisTitles(
+                  axisNameWidget: Text(
+                    'Amount',
                     style: TextStyle(
-                      color: isDark ? Colors.white54 : Colors.black45,
                       fontSize: 10,
                       fontWeight: FontWeight.bold,
-                      fontFamily: 'Inter',
+                      color: isDark ? Colors.white54 : Colors.black54,
                     ),
                   ),
-                );
-              },
+                  axisNameSize: 16,
+                  sideTitles: SideTitles(
+                    showTitles: true,
+                    reservedSize: 42,
+                    interval: yInterval,
+                    getTitlesWidget: (value, meta) {
+                      return Text(
+                        _formatCompactAmount(value, currency),
+                        style: TextStyle(
+                          color: isDark ? Colors.white54 : Colors.black45,
+                          fontSize: 9,
+                          fontWeight: FontWeight.w600,
+                        ),
+                      );
+                    },
+                  ),
+                ),
+                bottomTitles: AxisTitles(
+                  axisNameWidget: Padding(
+                    padding: const EdgeInsets.only(top: 2.0),
+                    child: Text(
+                      'Month',
+                      style: TextStyle(
+                        fontSize: 10,
+                        fontWeight: FontWeight.bold,
+                        color: isDark ? Colors.white54 : Colors.black54,
+                      ),
+                    ),
+                  ),
+                  axisNameSize: 18,
+                  sideTitles: SideTitles(
+                    showTitles: true,
+                    reservedSize: 20,
+                    getTitlesWidget: (value, meta) {
+                      final idx = value.toInt();
+                      if (idx < 0 || idx >= widget.monthlyData.length) {
+                        return const SizedBox();
+                      }
+                      return Padding(
+                        padding: const EdgeInsets.only(top: 4.0),
+                        child: Text(
+                          widget.monthlyData[idx].month,
+                          style: TextStyle(
+                            color: isDark ? Colors.white70 : Colors.black87,
+                            fontSize: 10,
+                            fontWeight: FontWeight.bold,
+                            fontFamily: 'Inter',
+                          ),
+                        ),
+                      );
+                    },
+                  ),
+                ),
+              ),
+              borderData: FlBorderData(
+                show: true,
+                border: Border(
+                  bottom: BorderSide(color: isDark ? Colors.white24 : Colors.black26, width: 1),
+                  left: BorderSide(color: isDark ? Colors.white24 : Colors.black26, width: 1),
+                ),
+              ),
+              barTouchData: BarTouchData(
+                touchTooltipData: BarTouchTooltipData(
+                  getTooltipColor: (_) => isDark ? const Color(0xFF1E1E2E) : Colors.white,
+                  getTooltipItem: (group, groupIndex, rod, rodIndex) {
+                    final valType = rodIndex == 0 ? 'Income' : 'Expense';
+                    final color = rodIndex == 0 ? incomeColor : expenseColor;
+                    return BarTooltipItem(
+                      '$valType\n${CurrencyFormatter.format(rod.toY, currency)}',
+                      TextStyle(
+                        color: color,
+                        fontWeight: FontWeight.bold,
+                        fontSize: 12,
+                        fontFamily: 'Inter',
+                      ),
+                    );
+                  },
+                ),
+              ),
             ),
           ),
         ),
-        gridData: const FlGridData(show: false),
-        borderData: FlBorderData(show: false),
-        barTouchData: BarTouchData(
-          touchTooltipData: BarTouchTooltipData(
-            getTooltipColor: (_) => isDark ? const Color(0xFF1E1E2E) : Colors.white,
-            getTooltipItem: (group, groupIndex, rod, rodIndex) {
-              final valType = rodIndex == 0 ? 'Income' : 'Expense';
-              final color = rodIndex == 0 ? Colors.green : const Color(0xFFE53935);
-              return BarTooltipItem(
-                '$valType\n${CurrencyFormatter.format(rod.toY, currency)}',
-                TextStyle(
-                  color: color,
-                  fontWeight: FontWeight.bold,
-                  fontSize: 12,
-                  fontFamily: 'Inter',
-                ),
-              );
-            },
-          ),
-        ),
-      ),
+      ],
     );
   }
 
@@ -382,7 +555,7 @@ class _ChartSectionState extends ConsumerState<ChartSection> {
                   child: Container(
                     alignment: Alignment.center,
                     decoration: BoxDecoration(
-                      color: _isIncomePie ? Colors.green : Colors.transparent,
+                      color: _isIncomePie ? (isDark ? const Color(0xFF00E676) : const Color(0xFF2ECC71)) : Colors.transparent,
                       borderRadius: BorderRadius.circular(10),
                     ),
                     child: Text(

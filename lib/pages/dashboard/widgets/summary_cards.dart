@@ -172,13 +172,13 @@ class _SummaryCardsState extends ConsumerState<SummaryCards> {
                 decoration: BoxDecoration(
                   borderRadius: BorderRadius.circular(24),
                   gradient: const LinearGradient(
-                    colors: [Color(0xFF6366F1), Color(0xFFA855F7)],
+                    colors: [Color(0xFFE53935), Color(0xFFD4AF37)],
                     begin: Alignment.topLeft,
                     end: Alignment.bottomRight,
                   ),
                   boxShadow: [
                     BoxShadow(
-                      color: const Color(0xFF6366F1).withValues(alpha: 0.3),
+                      color: const Color(0xFFE53935).withValues(alpha: 0.3),
                       blurRadius: 16,
                       offset: const Offset(0, 8),
                     ),
@@ -327,9 +327,9 @@ class _SummaryCardsState extends ConsumerState<SummaryCards> {
                 padding: EdgeInsets.zero,
                 borderRadius: 20,
                 color: isDark 
-                    ? Colors.green.withValues(alpha: 0.06) 
-                    : Colors.green.withValues(alpha: 0.04),
-                borderColor: Colors.green.withValues(alpha: 0.15),
+                    ? const Color(0xFF00E676).withValues(alpha: 0.08) 
+                    : const Color(0xFF2ECC71).withValues(alpha: 0.08),
+                borderColor: (isDark ? const Color(0xFF00E676) : const Color(0xFF2ECC71)).withValues(alpha: 0.25),
                 child: InkWell(
                   borderRadius: BorderRadius.circular(20),
                   onTap: () => _showTransactionsSheet(context, 'income'),
@@ -338,11 +338,11 @@ class _SummaryCardsState extends ConsumerState<SummaryCards> {
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
-                        const Row(
+                        Row(
                           children: [
-                            Icon(Icons.arrow_downward, color: Colors.green, size: 12),
-                            SizedBox(width: 4),
-                            Text(
+                            Icon(Icons.arrow_downward, color: isDark ? const Color(0xFF00E676) : const Color(0xFF2ECC71), size: 12),
+                            const SizedBox(width: 4),
+                            const Text(
                               'INCOME',
                               style: TextStyle(
                                 fontSize: 9,

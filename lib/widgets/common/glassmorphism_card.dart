@@ -28,13 +28,13 @@ class GlassmorphismCard extends StatelessWidget {
     final isDark = Theme.of(context).brightness == Brightness.dark;
     final disableAnimations = MediaQuery.maybeOf(context)?.disableAnimations ?? false;
     
-    // Default semi-transparent glass colors
+    // Default semi-transparent glass colors with luxury gold border touches
     final defaultBgColor = isDark 
-        ? Colors.white.withValues(alpha: 0.04) 
-        : Colors.black.withValues(alpha: 0.02);
+        ? const Color(0xFF141420).withValues(alpha: 0.7) 
+        : Colors.white.withValues(alpha: 0.9);
     final defaultBorderColor = isDark 
-        ? Colors.white.withValues(alpha: 0.08) 
-        : Colors.black.withValues(alpha: 0.05);
+        ? const Color(0xFFFFD700).withValues(alpha: 0.12) 
+        : const Color(0xFFD4AF37).withValues(alpha: 0.18);
 
     Widget cardContent = Container(
       width: width,
