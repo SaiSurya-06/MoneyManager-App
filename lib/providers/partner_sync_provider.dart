@@ -578,6 +578,10 @@ class PartnerSyncNotifier extends StateNotifier<PartnerSyncState> {
           try {
             decoded = ShareCodeEncoder.decode(partnerDataStr);
           } catch (e) {
+            final errStr = e.toString();
+            if (errStr.contains('Invalid base64 padding') || errStr.contains('FormatException')) {
+              throw Exception('Partner payload on server is corrupted or incomplete. Ask partner to tap Sync to re-upload.');
+            }
             throw Exception('Failed to parse partner payload: $e');
           }
         }
@@ -814,12 +818,6 @@ class PartnerSyncNotifier extends StateNotifier<PartnerSyncState> {
     }
   }
 
-  bool _isLetter(String char) {
-    if (char.isEmpty) return false;
-    final code = char.codeUnitAt(0);
-    return (code >= 65 && code <= 90) || (code >= 97 && code <= 122);
-  }
-
   List<String> _splitIntoChunks(String text, int chunkSize) {
     final List<String> chunks = [];
     int i = 0;
@@ -827,10 +825,6 @@ class PartnerSyncNotifier extends StateNotifier<PartnerSyncState> {
       int end = i + chunkSize;
       if (end >= text.length) {
         end = text.length;
-      } else {
-        while (end > i + 1 && !_isLetter(text[end])) {
-          end--;
-        }
       }
       chunks.add(text.substring(i, end));
       i = end;
