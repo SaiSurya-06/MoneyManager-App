@@ -740,7 +740,7 @@ class _LifestyleInflationTabState extends ConsumerState<LifestyleInflationTab> {
                                   decoration: BoxDecoration(
                                     color: isInflated
                                         ? const Color(0xFFE53935).withValues(alpha: 0.15)
-                                        : (isDeflated ? Colors.green.withValues(alpha: 0.15) : Colors.grey.withValues(alpha: 0.15)),
+                                        : (isDeflated ? (isDark ? const Color(0xFF00E676) : const Color(0xFF2ECC71)).withValues(alpha: 0.15) : Colors.grey.withValues(alpha: 0.15)),
                                     borderRadius: BorderRadius.circular(8),
                                   ),
                                   child: Text(
@@ -750,7 +750,7 @@ class _LifestyleInflationTabState extends ConsumerState<LifestyleInflationTab> {
                                       fontWeight: FontWeight.bold,
                                       color: isInflated
                                           ? const Color(0xFFE53935)
-                                          : (isDeflated ? Colors.green : Colors.grey),
+                                          : (isDeflated ? (isDark ? const Color(0xFF00E676) : const Color(0xFF2ECC71)) : Colors.grey),
                                     ),
                                   ),
                                 ),
@@ -781,7 +781,7 @@ class _LifestyleInflationTabState extends ConsumerState<LifestyleInflationTab> {
                                       value: (item.baselineSpend > 0 ? (item.currentSpend / (item.baselineSpend * 1.5)) : 1.0).clamp(0.0, 1.0),
                                       backgroundColor: isDark ? Colors.white10 : Colors.black12,
                                       valueColor: AlwaysStoppedAnimation<Color>(
-                                        isInflated ? const Color(0xFFE53935) : Colors.green,
+                                        isInflated ? const Color(0xFFE53935) : (isDark ? const Color(0xFF00E676) : const Color(0xFF2ECC71)),
                                       ),
                                       minHeight: 4,
                                     ),
@@ -793,7 +793,7 @@ class _LifestyleInflationTabState extends ConsumerState<LifestyleInflationTab> {
                                   style: TextStyle(
                                     fontSize: 11,
                                     fontWeight: FontWeight.bold,
-                                    color: isInflated ? const Color(0xFFE53935) : (isDeflated ? Colors.green : Colors.grey),
+                                    color: isInflated ? const Color(0xFFE53935) : (isDeflated ? (isDark ? const Color(0xFF00E676) : const Color(0xFF2ECC71)) : Colors.grey),
                                   ),
                                 ),
                               ],

@@ -1426,6 +1426,7 @@ class _PartnersPageState extends ConsumerState<PartnersPage> with SingleTickerPr
   }
 
   void _showTransactionDetails(PartnerTransaction tx, String currency) {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
     showDialog(
       context: context,
       builder: (context) => AlertDialog(
@@ -1434,7 +1435,7 @@ class _PartnersPageState extends ConsumerState<PartnersPage> with SingleTickerPr
           mainAxisSize: MainAxisSize.min,
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            _buildDetailRow('Amount', '${tx.type == 'income' ? '+' : '-'}${CurrencyFormatter.format(tx.amount, currency)}', valueColor: tx.type == 'income' ? Colors.green : const Color(0xFFE53935)),
+            _buildDetailRow('Amount', '${tx.type == 'income' ? '+' : '-'}${CurrencyFormatter.format(tx.amount, currency)}', valueColor: tx.type == 'income' ? (isDark ? const Color(0xFF00E676) : const Color(0xFF2ECC71)) : const Color(0xFFE53935)),
             _buildDetailRow('Account', tx.accountName),
             _buildDetailRow('Category', tx.categoryName),
             _buildDetailRow('Date', tx.date.toIso8601String().substring(0, 10)),

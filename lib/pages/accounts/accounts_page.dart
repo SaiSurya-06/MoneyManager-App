@@ -71,13 +71,13 @@ class AccountsPage extends ConsumerWidget {
                         decoration: BoxDecoration(
                           borderRadius: BorderRadius.circular(20),
                           gradient: const LinearGradient(
-                            colors: [Color(0xFF00ACC1), Color(0xFF4CAF50)],
+                            colors: [Color(0xFFE53935), Color(0xFFD4AF37)],
                             begin: Alignment.topLeft,
                             end: Alignment.bottomRight,
                           ),
                           boxShadow: [
                             BoxShadow(
-                              color: const Color(0xFF00ACC1).withValues(alpha: 0.2),
+                              color: const Color(0xFFE53935).withValues(alpha: 0.25),
                               blurRadius: 12,
                               offset: const Offset(0, 6),
                             ),

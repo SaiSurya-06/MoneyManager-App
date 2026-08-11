@@ -635,9 +635,9 @@ class _TransactionFormState extends ConsumerState<TransactionForm> {
                 children: [
                   _buildTypeButton('expense', 'Expense', const Color(0xFFE53935)),
                   const SizedBox(width: 8),
-                  _buildTypeButton('income', 'Income', Colors.green),
+                  _buildTypeButton('income', 'Income', isDark ? const Color(0xFF00E676) : const Color(0xFF2ECC71)),
                   const SizedBox(width: 8),
-                  _buildTypeButton('transfer', 'Transfer', Colors.blue),
+                  _buildTypeButton('transfer', 'Transfer', isDark ? const Color(0xFFFFD700) : const Color(0xFFD4AF37)),
                 ],
               ),
               
@@ -1506,11 +1506,11 @@ class _TransactionFormState extends ConsumerState<TransactionForm> {
                           selectedType = type;
                         }),
                         const SizedBox(width: 8),
-                        _buildDialogTypeBtn(setDialogState, 'income', 'Income', Colors.green, selectedType, (type) {
+                        _buildDialogTypeBtn(setDialogState, 'income', 'Income', isDark ? const Color(0xFF00E676) : const Color(0xFF2ECC71), selectedType, (type) {
                           selectedType = type;
                         }),
                         const SizedBox(width: 8),
-                        _buildDialogTypeBtn(setDialogState, 'both', 'Both', Colors.blue, selectedType, (type) {
+                        _buildDialogTypeBtn(setDialogState, 'both', 'Both', isDark ? const Color(0xFFFFD700) : const Color(0xFFD4AF37), selectedType, (type) {
                           selectedType = type;
                         }),
                       ],

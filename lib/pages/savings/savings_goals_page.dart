@@ -80,7 +80,7 @@ class _SavingsGoalsPageState extends ConsumerState<SavingsGoalsPage> {
             ),
             ElevatedButton(
               style: ElevatedButton.styleFrom(
-                backgroundColor: const Color(0xFF4CAF50),
+                backgroundColor: const Color(0xFFE53935),
                 foregroundColor: Colors.white,
               ),
               onPressed: () async {
@@ -817,9 +817,9 @@ class _GoalFormSheetState extends ConsumerState<GoalFormSheet> {
                           const SizedBox(height: 12),
                           ElevatedButton.icon(
                             style: ElevatedButton.styleFrom(
-                              backgroundColor: const Color(0xFF4CAF50).withValues(alpha: 0.15),
-                              foregroundColor: const Color(0xFF4CAF50),
-                              side: const BorderSide(color: Color(0xFF4CAF50), width: 1),
+                              backgroundColor: (isDark ? const Color(0xFFFFD700) : const Color(0xFFD4AF37)).withValues(alpha: 0.15),
+                              foregroundColor: isDark ? const Color(0xFFFFD700) : const Color(0xFFD4AF37),
+                              side: BorderSide(color: isDark ? const Color(0xFFFFD700) : const Color(0xFFD4AF37), width: 1),
                               minimumSize: const Size(double.infinity, 44),
                             ),
                             onPressed: () async {

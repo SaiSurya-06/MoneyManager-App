@@ -686,10 +686,8 @@ class _TransactionsPageState extends ConsumerState<TransactionsPage> {
                       flex: 2,
                       child: GlassmorphismCard(
                         padding: const EdgeInsets.symmetric(horizontal: 12.0, vertical: 12.0),
-                        color: isDark 
-                            ? Colors.green.withValues(alpha: 0.06) 
-                            : Colors.green.withValues(alpha: 0.04),
-                        borderColor: Colors.green.withValues(alpha: 0.15),
+                        color: (isDark ? const Color(0xFF00E676) : const Color(0xFF2ECC71)).withValues(alpha: 0.08),
+                        borderColor: (isDark ? const Color(0xFF00E676) : const Color(0xFF2ECC71)).withValues(alpha: 0.2),
                         child: Column(
                           crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
@@ -709,10 +707,10 @@ class _TransactionsPageState extends ConsumerState<TransactionsPage> {
                               alignment: Alignment.centerLeft,
                               child: Text(
                                 '+${CurrencyFormatter.format(totalIncome, currency)}',
-                                style: const TextStyle(
+                                style: TextStyle(
                                   fontSize: 14,
                                   fontWeight: FontWeight.bold,
-                                  color: Colors.green,
+                                  color: isDark ? const Color(0xFF00E676) : const Color(0xFF2ECC71),
                                   fontFamily: 'Inter',
                                 ),
                               ),

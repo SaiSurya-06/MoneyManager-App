@@ -185,7 +185,7 @@ class _SettingsPageState extends ConsumerState<SettingsPage> {
             child: const Text('Wipe Without Backup', style: TextStyle(color: Color(0xFFE53935))),
           ),
           ElevatedButton(
-            style: ElevatedButton.styleFrom(backgroundColor: Colors.blueAccent),
+            style: ElevatedButton.styleFrom(backgroundColor: const Color(0xFFE53935)),
             onPressed: () async {
               Navigator.pop(context, null); // Proceed with backup
             },

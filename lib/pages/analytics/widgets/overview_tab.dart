@@ -53,8 +53,8 @@ class _OverviewTabState extends ConsumerState<OverviewTab> {
                         backgroundColor: isDark ? Colors.white10 : Colors.black.withValues(alpha: 0.05),
                         valueColor: AlwaysStoppedAnimation<Color>(
                           derivedValues.healthScore > 75 
-                              ? Colors.green 
-                              : (derivedValues.healthScore > 45 ? Colors.orange : const Color(0xFFE53935)),
+                              ? (isDark ? const Color(0xFF00E676) : const Color(0xFF2ECC71)) 
+                              : (derivedValues.healthScore > 45 ? const Color(0xFFFFD700) : const Color(0xFFE53935)),
                         ),
                       ),
                     ),
@@ -620,13 +620,13 @@ class _OverviewTabState extends ConsumerState<OverviewTab> {
                   style: TextStyle(
                     fontWeight: FontWeight.bold,
                     fontSize: 12,
-                    color: diff == 0 ? Colors.grey : (isGood ? Colors.green : const Color(0xFFE53935)),
+                    color: diff == 0 ? Colors.grey : (isGood ? (isDark ? const Color(0xFF00E676) : const Color(0xFF2ECC71)) : const Color(0xFFE53935)),
                   ),
                 ),
                 const SizedBox(width: 4),
                 Icon(
                   isIncrease ? Icons.arrow_upward : (diff == 0 ? Icons.remove : Icons.arrow_downward),
-                  color: diff == 0 ? Colors.grey : (isGood ? Colors.green : const Color(0xFFE53935)),
+                  color: diff == 0 ? Colors.grey : (isGood ? (isDark ? const Color(0xFF00E676) : const Color(0xFF2ECC71)) : const Color(0xFFE53935)),
                   size: 14,
                 ),
               ],

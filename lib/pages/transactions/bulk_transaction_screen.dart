@@ -251,7 +251,7 @@ class _BulkTransactionScreenState extends ConsumerState<BulkTransactionScreen> {
             onPressed: _saveAll,
             child: const Text(
               'Save All',
-              style: TextStyle(color: Colors.blueAccent, fontWeight: FontWeight.bold, fontSize: 16),
+              style: TextStyle(color: Color(0xFFE53935), fontWeight: FontWeight.bold, fontSize: 16),
             ),
           ),
           const SizedBox(width: 8),
@@ -351,9 +351,9 @@ class _BulkTransactionScreenState extends ConsumerState<BulkTransactionScreen> {
                 ),
                 child: Row(
                   children: [
-                    _buildTypeButton(row, 'expense', 'Expense', Colors.redAccent),
-                    _buildTypeButton(row, 'income', 'Income', Colors.green),
-                    _buildTypeButton(row, 'transfer', 'Transfer', Colors.blueAccent),
+                    _buildTypeButton(row, 'expense', 'Expense', const Color(0xFFE53935)),
+                    _buildTypeButton(row, 'income', 'Income', isDark ? const Color(0xFF00E676) : const Color(0xFF2ECC71)),
+                    _buildTypeButton(row, 'transfer', 'Transfer', isDark ? const Color(0xFFFFD700) : const Color(0xFFD4AF37)),
                   ],
                 ),
               ),

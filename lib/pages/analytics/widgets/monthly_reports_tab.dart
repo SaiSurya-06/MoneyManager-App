@@ -229,12 +229,12 @@ class _MonthlyReportsTabState extends ConsumerState<MonthlyReportsTab> {
                     Container(
                       padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
                       decoration: BoxDecoration(
-                        color: Colors.green.withValues(alpha: 0.15),
+                        color: (isDark ? const Color(0xFF00E676) : const Color(0xFF2ECC71)).withValues(alpha: 0.15),
                         borderRadius: BorderRadius.circular(8),
                       ),
                       child: Text(
                         'Savings Rate: ${_selectedReport!.savingsRate.toStringAsFixed(1)}%',
-                        style: const TextStyle(color: Colors.green, fontWeight: FontWeight.bold, fontSize: 11),
+                        style: TextStyle(color: isDark ? const Color(0xFF00E676) : const Color(0xFF2ECC71), fontWeight: FontWeight.bold, fontSize: 11),
                       ),
                     ),
                   ],
@@ -250,7 +250,7 @@ class _MonthlyReportsTabState extends ConsumerState<MonthlyReportsTab> {
                           const SizedBox(height: 2),
                           Text(
                             CurrencyFormatter.format(_selectedReport!.totalIncome, currency),
-                            style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 15, color: Colors.green),
+                            style: TextStyle(fontWeight: FontWeight.bold, fontSize: 15, color: isDark ? const Color(0xFF00E676) : const Color(0xFF2ECC71)),
                           ),
                         ],
                       ),

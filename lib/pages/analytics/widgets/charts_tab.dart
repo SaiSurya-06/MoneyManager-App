@@ -76,7 +76,7 @@ class ChartsTab extends ConsumerWidget {
       'amount': monthlyIncome,
       'runningBalance': startingBalance + monthlyIncome,
       'isTotal': false,
-      'color': Colors.green,
+      'color': isDark ? const Color(0xFF00E676) : const Color(0xFF2ECC71),
     });
 
     double currentBal = startingBalance + monthlyIncome;
@@ -98,7 +98,7 @@ class ChartsTab extends ConsumerWidget {
       'amount': totalBalance,
       'runningBalance': totalBalance,
       'isTotal': true,
-      'color': Colors.blueAccent,
+      'color': isDark ? const Color(0xFFFFD700) : const Color(0xFFD4AF37),
     });
 
     // Calculate scaling limits for waterfall bars
