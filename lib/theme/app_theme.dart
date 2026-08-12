@@ -167,7 +167,7 @@ class AppTheme {
       ),
 
       // ── Card ────────────────────────────────────────────────────────────
-      cardTheme: CardTheme(
+      cardTheme: CardThemeData(
         color:        surface,
         elevation:    isDark ? 0 : 1,
         shadowColor:  Colors.black26,
@@ -296,7 +296,7 @@ class AppTheme {
       ),
 
       // ── Dialog ──────────────────────────────────────────────────────────
-      dialogTheme: DialogTheme(
+      dialogTheme: DialogThemeData(
         backgroundColor:  surface,
         surfaceTintColor: Colors.transparent,
         elevation:        8,
@@ -344,7 +344,7 @@ class AppTheme {
       ),
 
       // ── Tab Bar ─────────────────────────────────────────────────────────
-      tabBarTheme: TabBarTheme(
+      tabBarTheme: TabBarThemeData(
         labelColor:         AppColors.gold,
         unselectedLabelColor: onSurfaceMut,
         labelStyle:         AppTypography.labelLarge,
