@@ -16,6 +16,7 @@ import '../accounts/account_card.dart';
 import '../transactions/transaction_list_item.dart';
 import '../../core/utils/share_code_encoder.dart';
 import '../../models/transaction.dart';
+import 'widgets/partner_credit_card_usage_card.dart';
 
 
 const String _gasCodeTemplate = '''// Google Apps Script - Money Manager Partner Sync
@@ -1297,25 +1298,39 @@ class _PartnersPageState extends ConsumerState<PartnersPage> with SingleTickerPr
       );
     }
 
-    return GridView.builder(
-      padding: const EdgeInsets.all(16),
-      itemCount: syncState.partnerAccounts.length,
-      gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
-        crossAxisCount: 2,
-        crossAxisSpacing: 12,
-        mainAxisSpacing: 12,
-        childAspectRatio: ((MediaQuery.of(context).size.width - 32 - 12) / 2) / 172.0,
-      ),
-      itemBuilder: (context, index) {
-        final account = syncState.partnerAccounts[index];
-        return AccountCard(
-          account: account,
-          currency: syncState.partnerCurrency,
-          onTap: () {
-            context.push('/partner-sharing/account-detail', extra: account);
-          },
-        );
-      },
+    return CustomScrollView(
+      slivers: [
+        SliverToBoxAdapter(
+          child: Padding(
+            padding: const EdgeInsets.only(left: 16, right: 16, top: 8, bottom: 8),
+            child: PartnerCreditCardUsageCard(syncState: syncState),
+          ),
+        ),
+        SliverPadding(
+          padding: const EdgeInsets.all(16),
+          sliver: SliverGrid(
+            gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
+              crossAxisCount: 2,
+              crossAxisSpacing: 12,
+              mainAxisSpacing: 12,
+              childAspectRatio: ((MediaQuery.of(context).size.width - 32 - 12) / 2) / 172.0,
+            ),
+            delegate: SliverChildBuilderDelegate(
+              (context, index) {
+                final account = syncState.partnerAccounts[index];
+                return AccountCard(
+                  account: account,
+                  currency: syncState.partnerCurrency,
+                  onTap: () {
+                    context.push('/partner-sharing/account-detail', extra: account);
+                  },
+                );
+              },
+              childCount: syncState.partnerAccounts.length,
+            ),
+          ),
+        ),
+      ],
     );
   }
 
