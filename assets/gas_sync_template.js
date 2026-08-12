@@ -60,10 +60,8 @@ function doGet(e) {
       if (!missing) {
         var fullVal = allChunks.join('');
         setValueByKey(sheet, key, fullVal);
-        // Clean up chunk rows
-        for (var j = 0; j < total; j++) {
-          deleteRowByKey(sheet, key + '_chunk_' + j);
-        }
+        // Clean up chunk rows in one single pass
+        deleteChunkRows(sheet, key, total);
         return ContentService.createTextOutput('assembled').setMimeType(ContentService.MimeType.TEXT);
       }
       
@@ -137,6 +135,19 @@ function setValueByKey(sheet, key, value) {
   }
   if (!found) {
     sheet.appendRow([key, strVal, dateStr]);
+  }
+}
+
+function deleteChunkRows(sheet, key, total) {
+  var chunkKeys = {};
+  for (var i = 0; i < total; i++) {
+    chunkKeys[key + '_chunk_' + i] = true;
+  }
+  var data = sheet.getDataRange().getValues();
+  for (var r = data.length - 1; r >= 1; r--) {
+    if (chunkKeys[String(data[r][0])]) {
+      sheet.deleteRow(r + 1);
+    }
   }
 }
 

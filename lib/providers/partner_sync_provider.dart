@@ -835,8 +835,8 @@ class PartnerSyncNotifier extends StateNotifier<PartnerSyncState> {
   Future<void> _uploadData(String payload) async {
     final key = '${state.roomCode}__${state.mySlot}_data';
     // Payload is already base64url-encoded (URL-safe, no special chars).
-    // GAS GET URL limit ~2000 chars total; key+params ~100 chars, so 1500 chars/chunk is safe.
-    final chunks = _splitIntoChunks(payload, 1500);
+    // GAS GET URL limit ~8192 chars; key+params ~100 chars, so 3000 chars/chunk is safe and cuts HTTP requests in half.
+    final chunks = _splitIntoChunks(payload, 3000);
     final total = chunks.length;
 
     for (int i = 0; i < total; i++) {
@@ -852,6 +852,9 @@ class PartnerSyncNotifier extends StateNotifier<PartnerSyncState> {
       int attempts = 0;
       String lastError = '';
 
+      // Final chunk triggers GAS payload assembly, so give it a 60s timeout window
+      final timeoutSeconds = (i == total - 1) ? 60 : 45;
+
       while (!success && attempts < 3) {
         try {
           attempts++;
@@ -865,7 +868,7 @@ class PartnerSyncNotifier extends StateNotifier<PartnerSyncState> {
             'val': chunk,
           });
 
-          final response = await http.get(uri).timeout(const Duration(seconds: 20));
+          final response = await http.get(uri).timeout(Duration(seconds: timeoutSeconds));
 
           if (response.statusCode == 200) {
             final body = response.body.trim();
@@ -884,7 +887,11 @@ class PartnerSyncNotifier extends StateNotifier<PartnerSyncState> {
             lastError = 'HTTP ${response.statusCode}';
           }
         } catch (e) {
-          lastError = e.toString();
+          if (e is TimeoutException) {
+            lastError = 'Server timed out on Chunk ${i + 1} of $total';
+          } else {
+            lastError = e.toString();
+          }
         }
         if (!success && attempts < 3) {
           await Future.delayed(Duration(seconds: attempts * 2));
@@ -896,7 +903,7 @@ class PartnerSyncNotifier extends StateNotifier<PartnerSyncState> {
           errorMessage: 'Sync failed: $lastError',
           isSyncing: false,
         );
-        throw Exception('Upload chunk $i failed: $lastError');
+        throw Exception('Upload chunk ${i + 1} of $total failed: $lastError');
       }
     }
   }
@@ -926,7 +933,7 @@ class PartnerSyncNotifier extends StateNotifier<PartnerSyncState> {
     while (!success && attempts < 3) {
       try {
         attempts++;
-        final response = await http.get(uri).timeout(const Duration(seconds: 15));
+        final response = await http.get(uri).timeout(const Duration(seconds: 45));
         if (response.statusCode == 200) {
           responseBody = response.body;
           success = true;
