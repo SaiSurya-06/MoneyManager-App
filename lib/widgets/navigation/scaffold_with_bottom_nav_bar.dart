@@ -158,64 +158,78 @@ class _ScaffoldWithBottomNavBarState extends ConsumerState<ScaffoldWithBottomNav
         child: PremiumBackground(child: widget.child),
       ),
       bottomNavigationBar: Container(
-        decoration: BoxDecoration(
-          border: Border(
-            top: BorderSide(
-              color: isDark ? Colors.white.withValues(alpha: 0.06) : Colors.black.withValues(alpha: 0.04),
-              width: 1,
+        color: isDark ? const Color(0xFF141420) : const Color(0xFFF8F9FA),
+        child: SafeArea(
+          top: false,
+          child: Container(
+            decoration: BoxDecoration(
+              border: Border(
+                top: BorderSide(
+                  color: isDark ? Colors.white.withValues(alpha: 0.08) : Colors.black.withValues(alpha: 0.06),
+                  width: 1,
+                ),
+              ),
+            ),
+            child: BottomNavigationBar(
+              type: BottomNavigationBarType.fixed,
+              backgroundColor: isDark ? const Color(0xFF141420) : const Color(0xFFF8F9FA),
+              selectedItemColor: const Color(0xFFD4AF37),
+              unselectedItemColor: isDark ? const Color(0xFF9090A8) : const Color(0xFF5A5A72),
+              showUnselectedLabels: true,
+              selectedLabelStyle: const TextStyle(fontSize: 11, fontWeight: FontWeight.bold, fontFamily: 'Roboto'),
+              unselectedLabelStyle: const TextStyle(fontSize: 11, fontFamily: 'Roboto'),
+              elevation: 8,
+              currentIndex: selectedIndex,
+              onTap: (index) => _onItemTapped(index, context),
+              items: [
+                const BottomNavigationBarItem(
+                  icon: Icon(Icons.dashboard_outlined),
+                  activeIcon: Icon(Icons.dashboard),
+                  label: 'Dashboard',
+                ),
+                const BottomNavigationBarItem(
+                  icon: Icon(Icons.receipt_long_outlined),
+                  activeIcon: Icon(Icons.receipt_long),
+                  label: 'Ledger',
+                ),
+                const BottomNavigationBarItem(
+                  icon: Icon(Icons.account_balance_wallet_outlined),
+                  activeIcon: Icon(Icons.account_balance_wallet),
+                  label: 'Accounts',
+                ),
+                BottomNavigationBarItem(
+                  icon: isAnyBudgetOverspent
+                      ? const Badge(
+                          label: Text('!'),
+                          child: Icon(Icons.map_outlined),
+                        )
+                      : const Icon(Icons.map_outlined),
+                  activeIcon: isAnyBudgetOverspent
+                      ? const Badge(
+                          label: Text('!'),
+                          child: Icon(Icons.map),
+                        )
+                      : const Icon(Icons.map),
+                  label: 'Money Map',
+                ),
+                BottomNavigationBarItem(
+                  icon: isAnySyncConflict
+                      ? const Badge(
+                          label: Text('!'),
+                          child: Icon(Icons.grid_view_rounded),
+                        )
+                      : const Icon(Icons.grid_view_rounded),
+                  activeIcon: isAnySyncConflict
+                      ? const Badge(
+                          label: Text('!'),
+                          child: Icon(Icons.grid_view_rounded),
+                        )
+                      : const Icon(Icons.grid_view_rounded),
+                  label: 'More',
+                ),
+              ],
             ),
           ),
-        ),
-        child: BottomNavigationBar(
-          items: [
-            const BottomNavigationBarItem(
-              icon: Icon(Icons.dashboard_outlined),
-              activeIcon: Icon(Icons.dashboard),
-              label: 'Dashboard',
-            ),
-            const BottomNavigationBarItem(
-              icon: Icon(Icons.receipt_long_outlined),
-              activeIcon: Icon(Icons.receipt_long),
-              label: 'Ledger',
-            ),
-            const BottomNavigationBarItem(
-              icon: Icon(Icons.account_balance_wallet_outlined),
-              activeIcon: Icon(Icons.account_balance_wallet),
-              label: 'Accounts',
-            ),
-            BottomNavigationBarItem(
-              icon: isAnyBudgetOverspent
-                  ? const Badge(
-                      label: Text('!'),
-                      child: Icon(Icons.map_outlined),
-                    )
-                  : const Icon(Icons.map_outlined),
-              activeIcon: isAnyBudgetOverspent
-                  ? const Badge(
-                      label: Text('!'),
-                      child: Icon(Icons.map),
-                    )
-                  : const Icon(Icons.map),
-              label: 'Money Map',
-            ),
-            BottomNavigationBarItem(
-              icon: isAnySyncConflict
-                  ? const Badge(
-                      label: Text('!'),
-                      child: Icon(Icons.grid_view_rounded),
-                    )
-                  : const Icon(Icons.grid_view_rounded),
-              activeIcon: isAnySyncConflict
-                  ? const Badge(
-                      label: Text('!'),
-                      child: Icon(Icons.grid_view_rounded),
-                    )
-                  : const Icon(Icons.grid_view_rounded),
-              label: 'More',
-            ),
-          ],
-          currentIndex: selectedIndex,
-          onTap: (index) => _onItemTapped(index, context),
         ),
       ),
     );

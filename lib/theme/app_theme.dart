@@ -155,6 +155,19 @@ class AppTheme {
         overlayColor: WidgetStateProperty.all(AppColors.gold.withValues(alpha: 0.08)),
       ),
 
+      bottomNavigationBarTheme: BottomNavigationBarThemeData(
+        backgroundColor:      surface,
+        selectedItemColor:    AppColors.gold,
+        unselectedItemColor:  onSurfaceMut,
+        selectedIconTheme:    const IconThemeData(color: AppColors.gold, size: 24),
+        unselectedIconTheme:  IconThemeData(color: onSurfaceMut, size: 24),
+        selectedLabelStyle:   AppTypography.labelMedium.copyWith(color: AppColors.gold, fontWeight: FontWeight.bold),
+        unselectedLabelStyle: AppTypography.labelMedium.copyWith(color: onSurfaceMut),
+        showUnselectedLabels: true,
+        type:                 BottomNavigationBarType.fixed,
+        elevation:            8,
+      ),
+
       // ── Navigation Rail ─────────────────────────────────────────────────
       navigationRailTheme: NavigationRailThemeData(
         backgroundColor:   surface,
