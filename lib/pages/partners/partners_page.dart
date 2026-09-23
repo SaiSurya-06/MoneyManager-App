@@ -19,7 +19,7 @@ import '../../models/transaction.dart';
 import 'widgets/partner_credit_card_usage_card.dart';
 
 
-const String _gasCodeTemplate = '''// Google Apps Script - Money Manager Partner Sync
+const String _gasCodeTemplate = '''// Google Apps Script - Money Manager Partner Sync (High-Reliability Engine v2)
 // Deploy as: Web App | Execute as: Me | Who has access: Anyone
 
 function doGet(e) {
@@ -27,12 +27,14 @@ function doGet(e) {
     var params = (e && e.parameter) ? e.parameter : {};
     var action = params.action || "";
     
+    // Quick health-check: runs without locks for instant response
     if (action === "test") {
       return ContentService.createTextOutput("ok").setMimeType(ContentService.MimeType.TEXT);
     }
     
     var sheet = getOrCreateSheet();
     
+    // Read action
     if (action === "get") {
       var key = params.key;
       if (!key) {
@@ -42,11 +44,10 @@ function doGet(e) {
       if (val === null || val === undefined || val === "") {
         return ContentService.createTextOutput("404").setMimeType(ContentService.MimeType.TEXT);
       }
-      var result = String(val);
-      if (result.charAt(0) === "'") { result = result.substring(1); }
-      return ContentService.createTextOutput(result).setMimeType(ContentService.MimeType.TEXT);
+      return ContentService.createTextOutput(val).setMimeType(ContentService.MimeType.TEXT);
     }
     
+    // Write chunk action
     if (action === "set_chunk") {
       var key = params.key;
       var index = parseInt(params.index, 10);
@@ -57,32 +58,62 @@ function doGet(e) {
         return ContentService.createTextOutput("error: missing params").setMimeType(ContentService.MimeType.TEXT);
       }
       
-      var chunkKey = key + "_chunk_" + index;
-      setValueByKey(sheet, chunkKey, val);
-      
-      var allChunks = [];
-      var missing = false;
-      for (var i = 0; i < total; i++) {
-        var cVal = getValueByKey(sheet, key + "_chunk_" + i);
-        if (cVal === null || cVal === undefined || cVal === "") {
-          missing = true;
-          break;
+      // Use LockService to prevent race conditions when both partners sync simultaneously
+      var lock = LockService.getScriptLock();
+      try {
+        var hasLock = lock.tryLock(25000);
+        if (!hasLock) {
+          return ContentService.createTextOutput("error: server busy, please retry").setMimeType(ContentService.MimeType.TEXT);
         }
-        var cStr = String(cVal);
-        if (cStr.charAt(0) === "'") { cStr = cStr.substring(1); }
-        allChunks.push(cStr);
-      }
-      
-      if (!missing) {
-        var fullVal = allChunks.join("");
-        setValueByKey(sheet, key, fullVal);
-        for (var j = 0; j < total; j++) {
-          deleteRowByKey(sheet, key + "_chunk_" + j);
+        
+        var chunkKey = key + "_chunk_" + index;
+        
+        // Single chunk optimization: if total == 1, save directly to the main key
+        if (total === 1) {
+          setValueByKey(sheet, key, val, [chunkKey]);
+          return ContentService.createTextOutput("assembled").setMimeType(ContentService.MimeType.TEXT);
         }
-        return ContentService.createTextOutput("assembled").setMimeType(ContentService.MimeType.TEXT);
+        
+        // Save current chunk
+        setValueByKey(sheet, chunkKey, val);
+        
+        // Re-read data to verify all chunks
+        var allData = sheet.getDataRange().getValues();
+        var chunkMap = {};
+        for (var r = 1; r < allData.length; r++) {
+          var rowKey = String(allData[r][0]);
+          if (rowKey.indexOf(key + "_chunk_") === 0) {
+            var cStr = String(allData[r][1]);
+            if (cStr.charAt(0) === "'") { cStr = cStr.substring(1); }
+            chunkMap[rowKey] = cStr;
+          }
+        }
+        
+        // Check if all chunks from 0 to total - 1 exist
+        var allPresent = true;
+        var fullChunks = [];
+        var chunkKeysToDelete = [];
+        for (var i = 0; i < total; i++) {
+          var cKey = key + "_chunk_" + i;
+          chunkKeysToDelete.push(cKey);
+          if (!chunkMap[cKey]) {
+            allPresent = false;
+            break;
+          }
+          fullChunks.push(chunkMap[cKey]);
+        }
+        
+        if (allPresent) {
+          var fullVal = fullChunks.join("");
+          // Atomically set fullVal AND remove all chunk rows in a single batch operation
+          setValueByKey(sheet, key, fullVal, chunkKeysToDelete);
+          return ContentService.createTextOutput("assembled").setMimeType(ContentService.MimeType.TEXT);
+        }
+        
+        return ContentService.createTextOutput("chunk_received").setMimeType(ContentService.MimeType.TEXT);
+      } finally {
+        lock.releaseLock();
       }
-      
-      return ContentService.createTextOutput("chunk_received").setMimeType(ContentService.MimeType.TEXT);
     }
     
     return ContentService.createTextOutput("error: unknown action: " + action).setMimeType(ContentService.MimeType.TEXT);
@@ -93,19 +124,23 @@ function doGet(e) {
 
 function getOrCreateSheet() {
   var ss = null;
+  try {
+    ss = SpreadsheetApp.getActiveSpreadsheet();
+  } catch(e) {
+    ss = null;
+  }
   
-  // 1. Try bound script (Script Editor opened from inside a Google Sheet)
-  try { ss = SpreadsheetApp.getActiveSpreadsheet(); } catch(e) { ss = null; }
-  
-  // 2. Standalone script: retrieve or create a spreadsheet via Script Properties
   if (!ss) {
     var props = PropertiesService.getScriptProperties();
     var ssId = props.getProperty("SPREADSHEET_ID");
     if (ssId) {
-      try { ss = SpreadsheetApp.openById(ssId); } catch(e) { ssId = null; }
+      try {
+        ss = SpreadsheetApp.openById(ssId);
+      } catch(e) {
+        ss = null;
+      }
     }
     if (!ss) {
-      // Create a new spreadsheet and remember its ID
       ss = SpreadsheetApp.create("MoneyManager Partner Sync");
       props.setProperty("SPREADSHEET_ID", ss.getId());
     }
@@ -116,52 +151,108 @@ function getOrCreateSheet() {
     sheet = ss.insertSheet("SyncData");
     sheet.appendRow(["Key", "Value", "UpdatedAt"]);
     sheet.setFrozenRows(1);
-    sheet.getRange("B:B").setNumberFormat("@");
+    sheet.getRange("A:C").setNumberFormat("@");
   }
   return sheet;
 }
 
 function getValueByKey(sheet, key) {
   var data = sheet.getDataRange().getValues();
+  
+  // 1. Direct single-cell lookup
   for (var i = 1; i < data.length; i++) {
     if (String(data[i][0]) === String(key)) {
-      return data[i][1];
+      var val = data[i][1];
+      if (val === null || val === undefined || val === "") return null;
+      var str = String(val);
+      if (str.charAt(0) === "'") { str = str.substring(1); }
+      return str;
     }
   }
+  
+  // 2. Multi-part lookup (if value exceeded Google Sheets 45,000 char per-cell limit)
+  var parts = [];
+  var partIdx = 0;
+  while (true) {
+    var partKey = key + "__p" + partIdx;
+    var found = false;
+    for (var j = 1; j < data.length; j++) {
+      if (String(data[j][0]) === partKey) {
+        var pVal = data[j][1];
+        if (pVal !== null && pVal !== undefined) {
+          var pStr = String(pVal);
+          if (pStr.charAt(0) === "'") { pStr = pStr.substring(1); }
+          parts.push(pStr);
+          found = true;
+          break;
+        }
+      }
+    }
+    if (!found) break;
+    partIdx++;
+  }
+  
+  if (parts.length > 0) {
+    return parts.join("");
+  }
+  
   return null;
 }
 
-function setValueByKey(sheet, key, value) {
+/**
+ * High-performance batch updater:
+ * Updates keys and deletes specified keys in ONE atomic memory pass.
+ * Automatically splits payloads > 45,000 chars into multiple cells to avoid Google Sheets cell limits.
+ * Prepends "'" to prevent Google Sheets from interpreting values as formulas.
+ */
+function setValueByKey(sheet, key, value, keysToDelete) {
+  keysToDelete = keysToDelete || [];
   var data = sheet.getDataRange().getValues();
   var dateStr = new Date().toISOString();
-  var found = false;
   var strVal = String(value);
   
-  for (var i = 1; i < data.length; i++) {
-    if (String(data[i][0]) === String(key)) {
-      if (!found) {
-        sheet.getRange(i + 1, 2).setValue(strVal);
-        sheet.getRange(i + 1, 3).setValue(dateStr);
-        found = true;
-      } else {
-        sheet.deleteRow(i + 1);
-        data.splice(i, 1);
-        i--;
-      }
+  var deleteMap = {};
+  for (var d = 0; d < keysToDelete.length; d++) {
+    deleteMap[keysToDelete[d]] = true;
+  }
+  
+  // Also delete any existing multi-part keys for this key
+  for (var p = 0; p < 20; p++) {
+    deleteMap[key + "__p" + p] = true;
+  }
+  deleteMap[key] = true;
+  
+  var newRows = [];
+  if (data.length > 0) {
+    newRows.push(data[0]); // Header row
+  } else {
+    newRows.push(["Key", "Value", "UpdatedAt"]);
+  }
+  
+  // Filter out deleted / updated rows in memory
+  for (var r = 1; r < data.length; r++) {
+    var k = String(data[r][0]);
+    if (!deleteMap[k]) {
+      newRows.push(data[r]);
     }
   }
-  if (!found) {
-    sheet.appendRow([key, strVal, dateStr]);
-  }
-}
-
-function deleteRowByKey(sheet, key) {
-  var data = sheet.getDataRange().getValues();
-  for (var i = data.length - 1; i >= 1; i--) {
-    if (String(data[i][0]) === String(key)) {
-      sheet.deleteRow(i + 1);
+  
+  // Split into parts if string exceeds 45,000 characters
+  var MAX_CELL_LEN = 45000;
+  if (strVal.length > MAX_CELL_LEN) {
+    var partIdx = 0;
+    for (var offset = 0; offset < strVal.length; offset += MAX_CELL_LEN) {
+      var chunk = strVal.substring(offset, offset + MAX_CELL_LEN);
+      newRows.push([key + "__p" + partIdx, "'" + chunk, dateStr]);
+      partIdx++;
     }
+  } else {
+    newRows.push([key, "'" + strVal, dateStr]);
   }
+  
+  // Atomic single-call write to Google Sheets
+  sheet.clearContents();
+  sheet.getRange(1, 1, newRows.length, 3).setNumberFormat("@").setValues(newRows);
 }''';
 
 class PartnersPage extends ConsumerStatefulWidget {
@@ -241,7 +332,9 @@ class _PartnersPageState extends ConsumerState<PartnersPage> with SingleTickerPr
     if (success) {
       ToastNotification.show(context, 'Connection successful! Web App is active.');
     } else {
-      ToastNotification.show(context, 'Connection failed. Please check the URL and script deployment.', isError: true);
+      final error = ref.read(partnerSyncProvider).errorMessage ??
+          'Connection failed. Please check the URL and script deployment.';
+      ToastNotification.show(context, error, isError: true);
     }
   }
 

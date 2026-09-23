@@ -396,10 +396,14 @@ class PartnerSyncNotifier extends StateNotifier<PartnerSyncState> {
   Future<bool> testConnection(String url) async {
     try {
       final cleanedUrl = url.trim();
-      if (cleanedUrl.isEmpty) return false;
+      if (cleanedUrl.isEmpty) {
+        state = state.copyWith(errorMessage: 'Please enter your Web App URL.');
+        return false;
+      }
 
       // Enforce HTTPS protocol
       if (!cleanedUrl.toLowerCase().startsWith('https://')) {
+        state = state.copyWith(errorMessage: 'URL must start with https://');
         AppLogger.w('Rejected unencrypted HTTP connection attempt', tag: 'PartnerSync');
         return false;
       }
@@ -411,12 +415,31 @@ class PartnerSyncNotifier extends StateNotifier<PartnerSyncState> {
 
       final response = await http.get(uri).timeout(const Duration(seconds: 10));
       if (response.statusCode == 200) {
-        return response.body.trim() == 'ok';
+        final body = response.body.trim();
+        if (body == 'ok') {
+          state = state.copyWith(errorMessage: null);
+          return true;
+        } else if (body.contains('<!DOCTYPE') || body.contains('<html') || body.contains('accounts.google.com')) {
+          state = state.copyWith(
+            errorMessage: 'Permission Denied: Web App must be deployed with "Who has access: Anyone".',
+          );
+          return false;
+        } else {
+          state = state.copyWith(errorMessage: 'Unexpected script response: $body');
+          return false;
+        }
+      } else if (response.statusCode == 401 || response.statusCode == 403) {
+        state = state.copyWith(
+          errorMessage: 'Permission Denied (403): Deploy with "Execute as: Me" and "Who has access: Anyone".',
+        );
+        return false;
       }
       AppLogger.w('Test connection non-200 status: ${response.statusCode}', tag: 'PartnerSync');
+      state = state.copyWith(errorMessage: 'Server responded with status HTTP ${response.statusCode}.');
       return false;
     } catch (e, stack) {
       AppLogger.e('Test connection error', error: e, stackTrace: stack, tag: 'PartnerSync');
+      state = state.copyWith(errorMessage: 'Connection timed out or failed. Please check internet and URL.');
       return false;
     }
   }

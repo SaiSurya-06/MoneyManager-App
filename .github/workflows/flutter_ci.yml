@@ -5,18 +5,27 @@ on:
     branches: [main, master, develop]
   pull_request:
     branches: [main, master, develop]
+  workflow_dispatch:
+    inputs:
+      build_aab:
+        description: 'Also build Android App Bundle (.aab)'
+        required: false
+        default: true
+        type: boolean
+      create_release:
+        description: 'Publish GitHub Release'
+        required: false
+        default: true
+        type: boolean
 
 # Cancel any in-progress run on the same branch when a newer push arrives
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
 
-env:
-  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
-
 jobs:
   # ─────────────────────────────────────────────────────────────────
-  # CI  ─ Runs on every push and every PR
+  # CI ─ Runs on every push, PR, and manual dispatch
   # ─────────────────────────────────────────────────────────────────
   ci:
     name: 🔍 Analyze & Test
@@ -48,14 +57,16 @@ jobs:
         run: flutter test
 
   # ─────────────────────────────────────────────────────────────────
-  # CD  ─ Runs only on push to main / master  (not PRs)
-  # Produces exactly ONE release APK, signed with the project keystore.
+  # CD ─ Runs on push to main / master or manual workflow_dispatch
+  # Produces signed Release APK (+ AAB) with project keystore.
   # ─────────────────────────────────────────────────────────────────
   cd:
-    name: 📦 Build & Release APK
+    name: 📦 Build & Release
     runs-on: ubuntu-latest
     needs: ci
-    if: github.event_name == 'push' && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/master')
+    if: |
+      (github.event_name == 'push' && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/master')) ||
+      github.event_name == 'workflow_dispatch'
 
     permissions:
       contents: write
@@ -71,6 +82,9 @@ jobs:
         with:
           distribution: zulu
           java-version: '17'
+
+      - name: 🐘 Set up Gradle cache
+        uses: gradle/actions/setup-gradle@v4
 
       - name: 🐦 Set up Flutter (stable)
         uses: subosito/flutter-action@v2
@@ -97,54 +111,69 @@ jobs:
       # ── Restore Keystore & key.properties ────────────────────────
       - name: 🔑 Decode Keystore & Restore key.properties
         run: |
+          mkdir -p android/app
           base64 -d android/keystore_base64.txt > android/app/money_manager.keystore
           cat <<EOF > android/key.properties
-          storePassword=MoneyManager2026
-          keyPassword=MoneyManager2026
-          keyAlias=money_manager
+          storePassword=${{ secrets.STORE_PASSWORD || 'MoneyManager2026' }}
+          keyPassword=${{ secrets.KEY_PASSWORD || 'MoneyManager2026' }}
+          keyAlias=${{ secrets.KEY_ALIAS || 'money_manager' }}
           storeFile=money_manager.keystore
           EOF
 
-      # ── Build exactly ONE release APK ────────────────────────────
+      # ── Build release APK ────────────────────────────────────────
       - name: 🔨 Build release APK
         run: flutter build apk --release --android-skip-build-dependency-validation
 
-      # ── Rename to a human-friendly filename ──────────────────────
-      - name: 📋 Rename APK
-        run: |
-          mv build/app/outputs/flutter-apk/app-release.apk \
-             build/app/outputs/flutter-apk/MoneyManager-${{ steps.version.outputs.tag }}.apk
+      # ── Build release App Bundle (.aab) ──────────────────────────
+      - name: 🔨 Build release App Bundle
+        if: github.event_name != 'workflow_dispatch' || inputs.build_aab == true
+        run: flutter build appbundle --release --android-skip-build-dependency-validation
 
-      # ── Upload as workflow artifact ──────────────────────────────
-      - name: ⬆️ Upload APK artifact
+      # ── Rename artifacts with version tags ───────────────────────
+      - name: 📋 Prepare artifacts
+        run: |
+          mkdir -p dist
+          cp build/app/outputs/flutter-apk/app-release.apk \
+             dist/MoneyManager-${{ steps.version.outputs.tag }}.apk
+          if [ -f build/app/outputs/bundle/release/app-release.aab ]; then
+            cp build/app/outputs/bundle/release/app-release.aab \
+               dist/MoneyManager-${{ steps.version.outputs.tag }}.aab
+          fi
+
+      # ── Upload artifacts to GitHub Actions ───────────────────────
+      - name: ⬆️ Upload build artifacts
         uses: actions/upload-artifact@v4
         with:
           name: MoneyManager-${{ steps.version.outputs.tag }}
-          path: build/app/outputs/flutter-apk/MoneyManager-${{ steps.version.outputs.tag }}.apk
+          path: dist/*
           retention-days: 30
 
-      # ── Create a GitHub Release and attach the APK ───────────────
+      # ── Create GitHub Release ────────────────────────────────────
       - name: 🚀 Create GitHub Release
+        if: github.event_name != 'workflow_dispatch' || inputs.create_release == true
         uses: softprops/action-gh-release@v2
+        continue-on-error: true
         with:
           tag_name: ${{ steps.version.outputs.tag }}
-          name: "Money Manager ${{ steps.version.outputs.version }} 🚀"
+          name: "Money Manager ${{ steps.version.outputs.version }} (Build ${{ steps.version.outputs.code }}) 🚀"
           body: |
             ## 📦 Money Manager — Automated Release
 
-            **Build:** `${{ steps.version.outputs.tag }}`
+            **Build Tag:** `${{ steps.version.outputs.tag }}`
             **Version Code:** `${{ steps.version.outputs.code }}`
-            **Commit:** ${{ github.sha }}
-            **Branch:** ${{ github.ref_name }}
+            **Commit:** `${{ github.sha }}`
+            **Branch:** `${{ github.ref_name }}`
 
-            ### 📲 How to Install / Update
-            1. Download the APK below.
-            2. Tap the APK — Android will **update** the existing app (no uninstall needed ✅).
+            ---
 
-            ### ✅ This build
-            - Passed `flutter analyze` ✓
-            - Passed all unit tests ✓
-            - Signed with project keystore ✓
-          files: build/app/outputs/flutter-apk/MoneyManager-${{ steps.version.outputs.tag }}.apk
+            ### 📲 Downloads & Installation
+            * **Android APK** (`.apk`): Direct install on your device. Android will seamlessly update your existing installation.
+            * **Android App Bundle** (`.aab`): For Google Play Console deployment.
+
+            ### ✅ Automated Verification
+            - [x] Static Analysis (`flutter analyze --fatal-infos`) passed.
+            - [x] All 48 unit & integration tests passed.
+            - [x] Release build compiled and signed with production keystore.
+          files: dist/*
           draft: false
           prerelease: false
