@@ -83,6 +83,14 @@ jobs:
           distribution: zulu
           java-version: '17'
 
+      - name: 📱 Set up Android NDK (r27b)
+        uses: nttld/setup-ndk@v1
+        id: setup-ndk
+        with:
+          ndk-version: r27b
+          cache: true
+          link-to-sdk: true
+
       - name: 🐘 Set up Gradle cache
         uses: gradle/actions/setup-gradle@v4
 
@@ -107,6 +115,9 @@ jobs:
           echo "code=${VERSION_CODE}" >> "$GITHUB_OUTPUT"
           echo "flutter.versionCode=${VERSION_CODE}" >> android/local.properties
           echo "flutter.versionName=${VERSION}"      >> android/local.properties
+          if [ -n "${ANDROID_NDK_HOME}" ]; then
+            echo "ndk.dir=${ANDROID_NDK_HOME}"       >> android/local.properties
+          fi
 
       # ── Restore Keystore & key.properties ────────────────────────
       - name: 🔑 Decode Keystore & Restore key.properties
