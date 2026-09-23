@@ -135,9 +135,10 @@ jobs:
       - name: 🔨 Build release APK
         run: flutter build apk --release --android-skip-build-dependency-validation
 
-      # ── Build release App Bundle (.aab) ──────────────────────────
+      # ── Build release App Bundle (.aab) (optional) ───────────────
       - name: 🔨 Build release App Bundle
-        if: github.event_name != 'workflow_dispatch' || inputs.build_aab == true
+        if: github.event_name == 'workflow_dispatch' && inputs.build_aab == true
+        continue-on-error: true
         run: flutter build appbundle --release --android-skip-build-dependency-validation
 
       # ── Rename artifacts with version tags ───────────────────────
