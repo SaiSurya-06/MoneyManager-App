@@ -134,10 +134,7 @@ class _AccountsPageState extends ConsumerState<AccountsPage> {
                             ),
                             const SizedBox(height: 4),
                             Text(
-                              '${accountsState.activeAccounts.length} Active Accounts' +
-                                  (accountsState.archivedAccounts.isNotEmpty
-                                      ? ' (${accountsState.archivedAccounts.length} archived)'
-                                      : ''),
+                              '${accountsState.activeAccounts.length} Active Accounts${accountsState.archivedAccounts.isNotEmpty ? ' (${accountsState.archivedAccounts.length} archived)' : ''}',
                               style: const TextStyle(
                                 color: Colors.white60,
                                 fontSize: 10,

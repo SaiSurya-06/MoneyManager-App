@@ -11,7 +11,6 @@ import '../transactions/transaction_list_item.dart';
 import '../transactions/transaction_form.dart';
 import 'package:fl_chart/fl_chart.dart';
 import 'package:intl/intl.dart';
-import '../../widgets/common/toast_notification.dart';
 
 class AccountTransactionsPage extends ConsumerStatefulWidget {
   final Account account;
@@ -87,9 +86,6 @@ class _AccountTransactionsPageState extends ConsumerState<AccountTransactionsPag
         'icon': cat.icon,
       };
     }
-
-    final hex = '0xFF${account.color.replaceAll("#", "")}';
-    final cardColor = Color(int.tryParse(hex) ?? 0xFFE53935);
 
     // Calculate running balance history
     final List<FlSpot> spots = [];

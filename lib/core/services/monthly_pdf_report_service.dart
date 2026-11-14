@@ -1,4 +1,3 @@
-import 'dart:convert';
 import 'dart:io';
 import 'dart:typed_data';
 import 'package:crypto/crypto.dart';
@@ -313,9 +312,9 @@ class MonthlyPdfReportService {
           pw.SizedBox(height: 6),
           pw.Container(
             padding: const pw.EdgeInsets.all(10),
-            decoration: pw.BoxDecoration(
+            decoration: const pw.BoxDecoration(
               color: PdfColors.grey100,
-              borderRadius: const pw.BorderRadius.all(pw.Radius.circular(6)),
+              borderRadius: pw.BorderRadius.all(pw.Radius.circular(6)),
             ),
             child: pw.Row(
               mainAxisAlignment: pw.MainAxisAlignment.spaceAround,
@@ -540,9 +539,9 @@ class MonthlyPdfReportService {
           pw.SizedBox(height: 6),
           pw.Container(
             padding: const pw.EdgeInsets.all(10),
-            decoration: pw.BoxDecoration(
+            decoration: const pw.BoxDecoration(
               color: PdfColors.grey100,
-              borderRadius: const pw.BorderRadius.all(pw.Radius.circular(6)),
+              borderRadius: pw.BorderRadius.all(pw.Radius.circular(6)),
             ),
             child: pw.Row(
               mainAxisAlignment: pw.MainAxisAlignment.spaceAround,
@@ -616,7 +615,7 @@ class MonthlyPdfReportService {
                 pw.Row(
                   mainAxisAlignment: pw.MainAxisAlignment.spaceBetween,
                   children: [
-                    pw.Text('Days Under/At Budget: $underDays of ${dailySummary.totalDays} days', style: pw.TextStyle(fontSize: 9.5, color: PdfColors.green800)),
+                    pw.Text('Days Under/At Budget: $underDays of ${dailySummary.totalDays} days', style: const pw.TextStyle(fontSize: 9.5, color: PdfColors.green800)),
                     pw.Text('Days Over Budget: $overDays days', style: pw.TextStyle(fontSize: 9.5, color: overDays > 0 ? PdfColors.red800 : PdfColors.grey700)),
                   ],
                 ),

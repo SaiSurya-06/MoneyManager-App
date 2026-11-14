@@ -1,4 +1,3 @@
-import 'dart:math' as math;
 import 'package:intl/intl.dart';
 
 /// Centralized, production-grade Money & Currency utility for Money Manager.
@@ -166,7 +165,7 @@ class Money implements Comparable<Money> {
   /// Divides this money by a scalar [divisor] with exact deterministic rounding.
   Money operator /(num divisor) {
     if (divisor == 0) {
-      throw IntegerDivisionByZeroException();
+      throw const IntegerDivisionByZeroException();
     }
     final sign = (minorUnits < 0) ^ (divisor < 0) ? -1 : 1;
     final absMinor = minorUnits.abs();

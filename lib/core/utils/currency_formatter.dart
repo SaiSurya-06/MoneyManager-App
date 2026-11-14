@@ -1,4 +1,3 @@
-import 'package:intl/intl.dart';
 import 'money.dart';
 
 class CurrencyFormatter {

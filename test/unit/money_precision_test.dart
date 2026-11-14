@@ -1,12 +1,7 @@
 import 'package:flutter_test/flutter_test.dart';
 import 'package:money_manager/core/utils/money.dart';
-import 'package:money_manager/core/utils/currency_formatter.dart';
 import 'package:money_manager/models/account.dart';
 import 'package:money_manager/models/transaction.dart';
-import 'package:money_manager/models/budget.dart';
-import 'package:money_manager/models/debt_loan.dart';
-import 'package:money_manager/models/savings_goal.dart';
-import 'package:money_manager/models/transaction_template.dart';
 
 void main() {
   group('F01: Financial Amount Precision - Money Unit Tests', () {

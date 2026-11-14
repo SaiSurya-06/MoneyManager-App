@@ -4,7 +4,6 @@ import 'package:intl/intl.dart';
 import '../../../core/analytics/daily_budget_calculator.dart';
 import '../../../core/utils/currency_formatter.dart';
 import '../../../models/category.dart';
-import '../../../models/transaction.dart';
 import '../../../providers/accounts_provider.dart';
 import '../../../providers/budgets_provider.dart';
 import '../../../providers/categories_provider.dart';
@@ -66,7 +65,6 @@ class _DailySpendingCalendarState extends ConsumerState<DailySpendingCalendar> {
     final categoryMap = {for (var c in categories) c.id: c.name};
 
     // Determine the monthly budget for the selected month and category
-    final monthStr = DateFormat('yyyy-MM').format(_selectedMonthDate);
     int monthlyBudgetMinor = 0;
 
     if (_selectedCategoryId == null) {
