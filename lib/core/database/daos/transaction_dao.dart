@@ -11,36 +11,36 @@ class TransactionDao {
       // 1. Insert the transaction
       final id = await txn.insert('transaction_log', tx.toMap());
 
-      // 2. Adjust account balance
+      // 2. Adjust account balance using exact integer minor units
+      final amtMinor = tx.amountMinorUnits;
+
       if (tx.type == 'income') {
         await txn.rawUpdate(
-          'UPDATE account SET balance = balance + ? WHERE id = ?',
-          [tx.amount, tx.accountId],
+          'UPDATE account SET balance_minor = balance_minor + ?, balance = (balance_minor + ?) / 100.0 WHERE id = ?',
+          [amtMinor, amtMinor, tx.accountId],
         );
       } else if (tx.type == 'expense') {
         await txn.rawUpdate(
-          'UPDATE account SET balance = balance - ? WHERE id = ?',
-          [tx.amount, tx.accountId],
+          'UPDATE account SET balance_minor = balance_minor - ?, balance = (balance_minor - ?) / 100.0 WHERE id = ?',
+          [amtMinor, amtMinor, tx.accountId],
         );
         final ccTargetId = tx.transferToAccountId ?? _parseCreditCardTargetAccountId(tx.note);
         if (ccTargetId != null) {
           await txn.rawUpdate(
-            'UPDATE account SET balance = balance + ? WHERE id = ?',
-            [tx.amount, ccTargetId],
+            'UPDATE account SET balance_minor = balance_minor + ?, balance = (balance_minor + ?) / 100.0 WHERE id = ?',
+            [amtMinor, amtMinor, ccTargetId],
           );
         }
       } else if (tx.type == 'transfer') {
-        // For transfer, we treat the source account as being debited
         await txn.rawUpdate(
-          'UPDATE account SET balance = balance - ? WHERE id = ?',
-          [tx.amount, tx.accountId],
+          'UPDATE account SET balance_minor = balance_minor - ?, balance = (balance_minor - ?) / 100.0 WHERE id = ?',
+          [amtMinor, amtMinor, tx.accountId],
         );
-        // If a destination account is specified
         final destAccountId = tx.transferToAccountId ?? _parseDestAccountId(tx.note);
         if (destAccountId != null) {
           await txn.rawUpdate(
-            'UPDATE account SET balance = balance + ? WHERE id = ?',
-            [tx.amount, destAccountId],
+            'UPDATE account SET balance_minor = balance_minor + ?, balance = (balance_minor + ?) / 100.0 WHERE id = ?',
+            [amtMinor, amtMinor, destAccountId],
           );
         }
       }
@@ -53,34 +53,37 @@ class TransactionDao {
     final db = await _dbProvider.database;
 
     return await db.transaction((txn) async {
+      final oldMinor = oldTx.amountMinorUnits;
+      final newMinor = newTx.amountMinorUnits;
+
       // 1. Revert old transaction's balance adjustments
       if (oldTx.type == 'income') {
         await txn.rawUpdate(
-          'UPDATE account SET balance = balance - ? WHERE id = ?',
-          [oldTx.amount, oldTx.accountId],
+          'UPDATE account SET balance_minor = balance_minor - ?, balance = (balance_minor - ?) / 100.0 WHERE id = ?',
+          [oldMinor, oldMinor, oldTx.accountId],
         );
       } else if (oldTx.type == 'expense') {
         await txn.rawUpdate(
-          'UPDATE account SET balance = balance + ? WHERE id = ?',
-          [oldTx.amount, oldTx.accountId],
+          'UPDATE account SET balance_minor = balance_minor + ?, balance = (balance_minor + ?) / 100.0 WHERE id = ?',
+          [oldMinor, oldMinor, oldTx.accountId],
         );
         final oldCcTargetId = oldTx.transferToAccountId ?? _parseCreditCardTargetAccountId(oldTx.note);
         if (oldCcTargetId != null) {
           await txn.rawUpdate(
-            'UPDATE account SET balance = balance - ? WHERE id = ?',
-            [oldTx.amount, oldCcTargetId],
+            'UPDATE account SET balance_minor = balance_minor - ?, balance = (balance_minor - ?) / 100.0 WHERE id = ?',
+            [oldMinor, oldMinor, oldCcTargetId],
           );
         }
       } else if (oldTx.type == 'transfer') {
         await txn.rawUpdate(
-          'UPDATE account SET balance = balance + ? WHERE id = ?',
-          [oldTx.amount, oldTx.accountId],
+          'UPDATE account SET balance_minor = balance_minor + ?, balance = (balance_minor + ?) / 100.0 WHERE id = ?',
+          [oldMinor, oldMinor, oldTx.accountId],
         );
         final destAccountId = oldTx.transferToAccountId ?? _parseDestAccountId(oldTx.note);
         if (destAccountId != null) {
           await txn.rawUpdate(
-            'UPDATE account SET balance = balance - ? WHERE id = ?',
-            [oldTx.amount, destAccountId],
+            'UPDATE account SET balance_minor = balance_minor - ?, balance = (balance_minor - ?) / 100.0 WHERE id = ?',
+            [oldMinor, oldMinor, destAccountId],
           );
         }
       }
@@ -88,31 +91,31 @@ class TransactionDao {
       // 2. Apply new transaction's balance adjustments
       if (newTx.type == 'income') {
         await txn.rawUpdate(
-          'UPDATE account SET balance = balance + ? WHERE id = ?',
-          [newTx.amount, newTx.accountId],
+          'UPDATE account SET balance_minor = balance_minor + ?, balance = (balance_minor + ?) / 100.0 WHERE id = ?',
+          [newMinor, newMinor, newTx.accountId],
         );
       } else if (newTx.type == 'expense') {
         await txn.rawUpdate(
-          'UPDATE account SET balance = balance - ? WHERE id = ?',
-          [newTx.amount, newTx.accountId],
+          'UPDATE account SET balance_minor = balance_minor - ?, balance = (balance_minor - ?) / 100.0 WHERE id = ?',
+          [newMinor, newMinor, newTx.accountId],
         );
         final newCcTargetId = newTx.transferToAccountId ?? _parseCreditCardTargetAccountId(newTx.note);
         if (newCcTargetId != null) {
           await txn.rawUpdate(
-            'UPDATE account SET balance = balance + ? WHERE id = ?',
-            [newTx.amount, newCcTargetId],
+            'UPDATE account SET balance_minor = balance_minor + ?, balance = (balance_minor + ?) / 100.0 WHERE id = ?',
+            [newMinor, newMinor, newCcTargetId],
           );
         }
       } else if (newTx.type == 'transfer') {
         await txn.rawUpdate(
-          'UPDATE account SET balance = balance - ? WHERE id = ?',
-          [newTx.amount, newTx.accountId],
+          'UPDATE account SET balance_minor = balance_minor - ?, balance = (balance_minor - ?) / 100.0 WHERE id = ?',
+          [newMinor, newMinor, newTx.accountId],
         );
         final destAccountId = newTx.transferToAccountId ?? _parseDestAccountId(newTx.note);
         if (destAccountId != null) {
           await txn.rawUpdate(
-            'UPDATE account SET balance = balance + ? WHERE id = ?',
-            [newTx.amount, destAccountId],
+            'UPDATE account SET balance_minor = balance_minor + ?, balance = (balance_minor + ?) / 100.0 WHERE id = ?',
+            [newMinor, newMinor, destAccountId],
           );
         }
       }
@@ -131,34 +134,36 @@ class TransactionDao {
     final db = await _dbProvider.database;
 
     return await db.transaction((txn) async {
+      final amtMinor = tx.amountMinorUnits;
+
       // 1. Revert balance adjustments
       if (tx.type == 'income') {
         await txn.rawUpdate(
-          'UPDATE account SET balance = balance - ? WHERE id = ?',
-          [tx.amount, tx.accountId],
+          'UPDATE account SET balance_minor = balance_minor - ?, balance = (balance_minor - ?) / 100.0 WHERE id = ?',
+          [amtMinor, amtMinor, tx.accountId],
         );
       } else if (tx.type == 'expense') {
         await txn.rawUpdate(
-          'UPDATE account SET balance = balance + ? WHERE id = ?',
-          [tx.amount, tx.accountId],
+          'UPDATE account SET balance_minor = balance_minor + ?, balance = (balance_minor + ?) / 100.0 WHERE id = ?',
+          [amtMinor, amtMinor, tx.accountId],
         );
         final ccTargetId = tx.transferToAccountId ?? _parseCreditCardTargetAccountId(tx.note);
         if (ccTargetId != null) {
           await txn.rawUpdate(
-            'UPDATE account SET balance = balance - ? WHERE id = ?',
-            [tx.amount, ccTargetId],
+            'UPDATE account SET balance_minor = balance_minor - ?, balance = (balance_minor - ?) / 100.0 WHERE id = ?',
+            [amtMinor, amtMinor, ccTargetId],
           );
         }
       } else if (tx.type == 'transfer') {
         await txn.rawUpdate(
-          'UPDATE account SET balance = balance + ? WHERE id = ?',
-          [tx.amount, tx.accountId],
+          'UPDATE account SET balance_minor = balance_minor + ?, balance = (balance_minor + ?) / 100.0 WHERE id = ?',
+          [amtMinor, amtMinor, tx.accountId],
         );
         final destAccountId = tx.transferToAccountId ?? _parseDestAccountId(tx.note);
         if (destAccountId != null) {
           await txn.rawUpdate(
-            'UPDATE account SET balance = balance - ? WHERE id = ?',
-            [tx.amount, destAccountId],
+            'UPDATE account SET balance_minor = balance_minor - ?, balance = (balance_minor - ?) / 100.0 WHERE id = ?',
+            [amtMinor, amtMinor, destAccountId],
           );
         }
       }
@@ -234,33 +239,34 @@ class TransactionDao {
     final db = await _dbProvider.database;
     await db.transaction((txn) async {
       for (var tx in txs) {
+        final amtMinor = tx.amountMinorUnits;
         if (tx.type == 'income') {
           await txn.rawUpdate(
-            'UPDATE account SET balance = balance - ? WHERE id = ?',
-            [tx.amount, tx.accountId],
+            'UPDATE account SET balance_minor = balance_minor - ?, balance = (balance_minor - ?) / 100.0 WHERE id = ?',
+            [amtMinor, amtMinor, tx.accountId],
           );
         } else if (tx.type == 'expense') {
           await txn.rawUpdate(
-            'UPDATE account SET balance = balance + ? WHERE id = ?',
-            [tx.amount, tx.accountId],
+            'UPDATE account SET balance_minor = balance_minor + ?, balance = (balance_minor + ?) / 100.0 WHERE id = ?',
+            [amtMinor, amtMinor, tx.accountId],
           );
           final ccTargetId = tx.transferToAccountId ?? _parseCreditCardTargetAccountId(tx.note);
           if (ccTargetId != null) {
             await txn.rawUpdate(
-              'UPDATE account SET balance = balance - ? WHERE id = ?',
-              [tx.amount, ccTargetId],
+              'UPDATE account SET balance_minor = balance_minor - ?, balance = (balance_minor - ?) / 100.0 WHERE id = ?',
+              [amtMinor, amtMinor, ccTargetId],
             );
           }
         } else if (tx.type == 'transfer') {
           await txn.rawUpdate(
-            'UPDATE account SET balance = balance + ? WHERE id = ?',
-            [tx.amount, tx.accountId],
+            'UPDATE account SET balance_minor = balance_minor + ?, balance = (balance_minor + ?) / 100.0 WHERE id = ?',
+            [amtMinor, amtMinor, tx.accountId],
           );
           final destAccountId = tx.transferToAccountId ?? _parseDestAccountId(tx.note);
           if (destAccountId != null) {
             await txn.rawUpdate(
-              'UPDATE account SET balance = balance - ? WHERE id = ?',
-              [tx.amount, destAccountId],
+              'UPDATE account SET balance_minor = balance_minor - ?, balance = (balance_minor - ?) / 100.0 WHERE id = ?',
+              [amtMinor, amtMinor, destAccountId],
             );
           }
         }

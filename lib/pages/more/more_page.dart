@@ -79,6 +79,17 @@ class _MorePageState extends ConsumerState<MorePage> {
     // List of all features available
     final List<FeatureItem> allFeatures = [
       FeatureItem(
+        label: 'Monthly Financial Reports',
+        subtitle: 'Automated A4 income, expense & budget PDFs',
+        icon: Icons.picture_as_pdf_outlined,
+        gradientColors: [const Color(0xFFE53935), const Color(0xFFFF5252)],
+        routeName: '/monthly-reports',
+        onTap: () {
+          ref.read(recentlyUsedProvider.notifier).addFeature('/monthly-reports');
+          context.push('/monthly-reports');
+        },
+      ),
+      FeatureItem(
         label: 'User Guide & Help',
         subtitle: 'Learn how to use profiles, security, budgets, and goals',
         icon: Icons.menu_book_outlined,

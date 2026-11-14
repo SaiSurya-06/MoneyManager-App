@@ -110,7 +110,35 @@ class TransactionListItem extends StatelessWidget {
                           style: TextStyle(color: Colors.amber, fontSize: 8, fontWeight: FontWeight.bold),
                         ),
                       ),
-                    ]
+                    ],
+
+                    if (transaction.type == 'expense' && !transaction.isBudgetIncluded) ...[
+                      const SizedBox(width: 6),
+                      Container(
+                        padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 2),
+                        decoration: BoxDecoration(
+                          color: Colors.blueGrey.withValues(alpha: 0.15),
+                          borderRadius: BorderRadius.circular(4),
+                          border: Border.all(color: Colors.blueGrey.withValues(alpha: 0.4), width: 0.8),
+                        ),
+                        child: const Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            Icon(Icons.pie_chart_outline, size: 9, color: Colors.blueGrey),
+                            SizedBox(width: 3),
+                            Text(
+                              'NO BUDGET',
+                              style: TextStyle(
+                                color: Colors.blueGrey,
+                                fontSize: 8,
+                                fontWeight: FontWeight.bold,
+                                letterSpacing: 0.4,
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ],
                   ],
                 ),
                 const SizedBox(height: 4),

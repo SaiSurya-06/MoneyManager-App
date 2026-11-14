@@ -7,22 +7,29 @@ class AccountsState {
   final List<Account> accounts;
   final bool isLoading;
   final String? errorMessage;
+  final bool showArchivedOnly;
 
   AccountsState({
     required this.accounts,
     this.isLoading = false,
     this.errorMessage,
+    this.showArchivedOnly = false,
   });
+
+  List<Account> get activeAccounts => accounts.where((a) => !a.isArchived).toList();
+  List<Account> get archivedAccounts => accounts.where((a) => a.isArchived).toList();
 
   AccountsState copyWith({
     List<Account>? accounts,
     bool? isLoading,
     String? errorMessage,
+    bool? showArchivedOnly,
   }) {
     return AccountsState(
       accounts: accounts ?? this.accounts,
       isLoading: isLoading ?? this.isLoading,
       errorMessage: errorMessage,
+      showArchivedOnly: showArchivedOnly ?? this.showArchivedOnly,
     );
   }
 }
@@ -37,14 +44,29 @@ class AccountsNotifier extends StateNotifier<AccountsState> {
   Future<void> loadAccounts() async {
     try {
       state = state.copyWith(isLoading: true);
-      final accounts = await _accountDao.getAllAccounts();
-      state = AccountsState(accounts: accounts, isLoading: false);
+      final accounts = await _accountDao.getAllAccounts(includeArchived: true);
+      state = state.copyWith(accounts: accounts, isLoading: false, errorMessage: null);
     } catch (e) {
       state = state.copyWith(isLoading: false, errorMessage: 'Failed to load accounts: $e');
     }
   }
 
-  Future<int?> addAccount(String name, String type, double balance, String icon, String color, bool isShared, [double? limitAmount]) async {
+  void toggleArchivedFilter(bool showArchivedOnly) {
+    state = state.copyWith(showArchivedOnly: showArchivedOnly);
+  }
+
+  Future<int?> addAccount(
+    String name,
+    String type,
+    double balance,
+    String icon,
+    String color,
+    bool isShared, [
+    double? limitAmount,
+    int? billingCycleStartDay,
+    int? statementDueDay,
+    double? minimumDue,
+  ]) async {
     try {
       final newAccount = Account(
         name: name,
@@ -55,6 +77,9 @@ class AccountsNotifier extends StateNotifier<AccountsState> {
         isShared: isShared,
         createdAt: DateTime.now(),
         limitAmount: limitAmount,
+        billingCycleStartDay: billingCycleStartDay,
+        statementDueDay: statementDueDay,
+        minimumDue: minimumDue,
       );
       final id = await _accountDao.insertAccount(newAccount);
       await loadAccounts();
@@ -78,26 +103,52 @@ class AccountsNotifier extends StateNotifier<AccountsState> {
     }
   }
 
+  Future<int> getTransactionCount(int accountId) async {
+    return await _accountDao.getTransactionCountForAccount(accountId);
+  }
+
+  /// Archives the account.
+  Future<bool> archiveAccount(int id) async {
+    try {
+      await _accountDao.archiveAccount(id);
+      await loadAccounts();
+      await AppDatabase.queueSyncAction('update', 'account', id, {'id': id, 'is_archived': 1});
+      return true;
+    } catch (e) {
+      state = state.copyWith(errorMessage: 'Failed to archive account: $e');
+      return false;
+    }
+  }
+
+  /// Restores an archived account.
+  Future<bool> restoreAccount(int id) async {
+    try {
+      await _accountDao.restoreAccount(id);
+      await loadAccounts();
+      await AppDatabase.queueSyncAction('update', 'account', id, {'id': id, 'is_archived': 0});
+      return true;
+    } catch (e) {
+      state = state.copyWith(errorMessage: 'Failed to restore account: $e');
+      return false;
+    }
+  }
+
+  /// Safe deletion: will fail with informative message if transactions exist.
   Future<bool> deleteAccount(int id) async {
     try {
+      final txCount = await _accountDao.getTransactionCountForAccount(id);
+      if (txCount > 0) {
+        state = state.copyWith(
+          errorMessage: 'Cannot delete account with $txCount existing transactions. Please archive it instead.',
+        );
+        return false;
+      }
       await _accountDao.deleteAccount(id);
       await loadAccounts();
       await AppDatabase.queueSyncAction('delete', 'account', id, {'id': id});
       return true;
     } catch (e) {
       state = state.copyWith(errorMessage: 'Failed to delete account: $e');
-      return false;
-    }
-  }
-
-  Future<bool> restoreAccount(Account account) async {
-    try {
-      final id = await _accountDao.insertAccount(account);
-      await loadAccounts();
-      await AppDatabase.queueSyncAction('insert', 'account', id, account.copyWith(id: id).toMap());
-      return true;
-    } catch (e) {
-      state = state.copyWith(errorMessage: 'Failed to restore account: $e');
       return false;
     }
   }

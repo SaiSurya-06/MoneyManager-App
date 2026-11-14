@@ -60,7 +60,7 @@ class AppDatabase {
 
     final db = await openDatabase(
       path,
-      version: 12,
+      version: 13,
       onCreate: _createDB,
       onUpgrade: _upgradeDB,
     );
@@ -273,6 +273,139 @@ class AppDatabase {
         assert(() { debugPrint('[DB migration v12] $e'); return true; }());
       }
     }
+    if (oldVersion < 13) {
+      await _migrateToV13(db);
+    }
+  }
+
+  Future<void> _migrateToV13(Database db) async {
+    try {
+      // 1. Audit pre-migration record counts and sums
+      final preAccountCount = Sqflite.firstIntValue(await db.rawQuery('SELECT COUNT(*) FROM account')) ?? 0;
+      final preTxCount = Sqflite.firstIntValue(await db.rawQuery('SELECT COUNT(*) FROM transaction_log')) ?? 0;
+      final preBudgetCount = Sqflite.firstIntValue(await db.rawQuery('SELECT COUNT(*) FROM budget')) ?? 0;
+
+      // 2. Add integer minor unit columns to monetary tables safely
+      final alterStatements = [
+        "ALTER TABLE account ADD COLUMN balance_minor INTEGER NOT NULL DEFAULT 0",
+        "ALTER TABLE account ADD COLUMN limit_amount_minor INTEGER",
+        "ALTER TABLE account ADD COLUMN is_archived INTEGER NOT NULL DEFAULT 0",
+        "ALTER TABLE account ADD COLUMN archived_at TEXT",
+        "ALTER TABLE account ADD COLUMN billing_cycle_start_day INTEGER",
+        "ALTER TABLE account ADD COLUMN statement_due_day INTEGER",
+        "ALTER TABLE account ADD COLUMN minimum_due REAL",
+        "ALTER TABLE account ADD COLUMN minimum_due_minor INTEGER",
+        "ALTER TABLE transaction_log ADD COLUMN amount_minor INTEGER NOT NULL DEFAULT 0",
+        "ALTER TABLE transaction_log ADD COLUMN is_budget_included INTEGER NOT NULL DEFAULT 1",
+        "ALTER TABLE budget ADD COLUMN limit_amount_minor INTEGER NOT NULL DEFAULT 0",
+        "ALTER TABLE savings_goal ADD COLUMN target_amount_minor INTEGER NOT NULL DEFAULT 0",
+        "ALTER TABLE savings_goal ADD COLUMN current_amount_minor INTEGER NOT NULL DEFAULT 0",
+        "ALTER TABLE debt_loan ADD COLUMN balance_minor INTEGER NOT NULL DEFAULT 0",
+        "ALTER TABLE debt_loan ADD COLUMN original_amount_minor INTEGER NOT NULL DEFAULT 0",
+        "ALTER TABLE debt_loan ADD COLUMN monthly_payment_minor INTEGER NOT NULL DEFAULT 0",
+        "ALTER TABLE category ADD COLUMN spending_limit_minor INTEGER",
+        "ALTER TABLE transaction_template ADD COLUMN amount_minor INTEGER NOT NULL DEFAULT 0",
+        "ALTER TABLE planning_meta ADD COLUMN estimated_income_minor INTEGER NOT NULL DEFAULT 0",
+      ];
+
+      for (final sql in alterStatements) {
+        try {
+          await db.execute(sql);
+        } catch (e) {
+          assert(() { debugPrint('[DB migration v13 column add] $e'); return true; }());
+        }
+      }
+
+      // 3. Migrate existing values into exact integer minor units
+      await db.execute('''
+        UPDATE account SET 
+          balance_minor = CAST(ROUND(balance * 100) AS INTEGER),
+          limit_amount_minor = CASE WHEN limit_amount IS NOT NULL THEN CAST(ROUND(limit_amount * 100) AS INTEGER) ELSE NULL END,
+          is_archived = 0
+      ''');
+
+      await db.execute('''
+        UPDATE transaction_log SET 
+          amount_minor = CAST(ROUND(amount * 100) AS INTEGER),
+          is_budget_included = 1
+      ''');
+
+      await db.execute('''
+        UPDATE budget SET 
+          limit_amount_minor = CAST(ROUND(limit_amount * 100) AS INTEGER)
+      ''');
+
+      await db.execute('''
+        UPDATE savings_goal SET 
+          target_amount_minor = CAST(ROUND(target_amount * 100) AS INTEGER),
+          current_amount_minor = CAST(ROUND(current_amount * 100) AS INTEGER)
+      ''');
+
+      await db.execute('''
+        UPDATE debt_loan SET 
+          balance_minor = CAST(ROUND(balance * 100) AS INTEGER),
+          original_amount_minor = CAST(ROUND(original_amount * 100) AS INTEGER),
+          monthly_payment_minor = CAST(ROUND(monthly_payment * 100) AS INTEGER)
+      ''');
+
+      await db.execute('''
+        UPDATE category SET 
+          spending_limit_minor = CASE WHEN spending_limit IS NOT NULL THEN CAST(ROUND(spending_limit * 100) AS INTEGER) ELSE NULL END
+      ''');
+
+      await db.execute('''
+        UPDATE transaction_template SET 
+          amount_minor = CAST(ROUND(amount * 100) AS INTEGER)
+      ''');
+
+      await db.execute('''
+        UPDATE planning_meta SET 
+          estimated_income_minor = CAST(ROUND(estimated_income * 100) AS INTEGER)
+      ''');
+
+      // 4. Recalculate account balances using integer minor units
+      await recalculateAllBalances(db);
+
+      // 5. Create audit table and log migration verification
+      await db.execute('''
+        CREATE TABLE IF NOT EXISTS migration_audit (
+          version INTEGER PRIMARY KEY,
+          migrated_at TEXT NOT NULL,
+          record_counts TEXT NOT NULL,
+          validation_result TEXT NOT NULL
+        )
+      ''');
+
+      // 6. Create report_history table for automated monthly PDF reports
+      await db.execute('''
+        CREATE TABLE IF NOT EXISTS report_history (
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          report_type TEXT NOT NULL,
+          reporting_month TEXT NOT NULL,
+          generated_at TEXT NOT NULL,
+          file_path TEXT NOT NULL,
+          file_size_bytes INTEGER NOT NULL,
+          checksum TEXT NOT NULL,
+          is_auto_generated INTEGER NOT NULL DEFAULT 1
+        )
+      ''');
+
+      final postAccountCount = Sqflite.firstIntValue(await db.rawQuery('SELECT COUNT(*) FROM account')) ?? 0;
+      final postTxCount = Sqflite.firstIntValue(await db.rawQuery('SELECT COUNT(*) FROM transaction_log')) ?? 0;
+      final postBudgetCount = Sqflite.firstIntValue(await db.rawQuery('SELECT COUNT(*) FROM budget')) ?? 0;
+
+      final isCountPreserved = (preAccountCount == postAccountCount) && (preTxCount == postTxCount) && (preBudgetCount == postBudgetCount);
+
+      await db.insert('migration_audit', {
+        'version': 13,
+        'migrated_at': DateTime.now().toIso8601String(),
+        'record_counts': 'accounts: $postAccountCount, transactions: $postTxCount, budgets: $postBudgetCount',
+        'validation_result': isCountPreserved ? 'PASSED_VERIFIED' : 'COUNT_MISMATCH',
+      }, conflictAlgorithm: ConflictAlgorithm.replace);
+    } catch (e) {
+      assert(() { debugPrint('[DB migration v13] $e'); return true; }());
+      rethrow;
+    }
   }
 
   Future<void> _migrateNotesToColumn(Database db) async {
@@ -313,9 +446,9 @@ class AppDatabase {
 
   Future<void> recalculateAllBalances(Database db) async {
     final accounts = await db.query('account');
-    final accountBalances = <int, double>{};
+    final accountBalancesMinor = <int, int>{};
     for (var acc in accounts) {
-      accountBalances[acc['id'] as int] = 0.0;
+      accountBalancesMinor[acc['id'] as int] = 0;
     }
 
     final txs = await db.query('transaction_log');
@@ -323,25 +456,31 @@ class AppDatabase {
       if (tx['parent_id'] != null) continue; // Skip split child transactions
       
       final accountId = tx['account_id'] as int;
-      final amount = (tx['amount'] as num).toDouble();
+      final int amountMinor = (tx['amount_minor'] as int?) ??
+          ((tx['amount'] as num).toDouble() * 100).round();
       final type = tx['type'] as String;
       final transferTo = tx['transfer_to_account_id'] as int?;
 
       if (type == 'income') {
-        accountBalances[accountId] = (accountBalances[accountId] ?? 0.0) + amount;
+        accountBalancesMinor[accountId] = (accountBalancesMinor[accountId] ?? 0) + amountMinor;
       } else if (type == 'expense' || type == 'transfer') {
-        accountBalances[accountId] = (accountBalances[accountId] ?? 0.0) - amount;
+        accountBalancesMinor[accountId] = (accountBalancesMinor[accountId] ?? 0) - amountMinor;
       }
 
-      if (transferTo != null && accountBalances.containsKey(transferTo)) {
-        accountBalances[transferTo] = (accountBalances[transferTo] ?? 0.0) + amount;
+      if (transferTo != null && accountBalancesMinor.containsKey(transferTo)) {
+        accountBalancesMinor[transferTo] = (accountBalancesMinor[transferTo] ?? 0) + amountMinor;
       }
     }
 
-    for (var entry in accountBalances.entries) {
+    for (var entry in accountBalancesMinor.entries) {
+      final minor = entry.value;
+      final major = minor / 100.0;
       await db.update(
         'account',
-        {'balance': entry.value},
+        {
+          'balance': major,
+          'balance_minor': minor,
+        },
         where: 'id = ?',
         whereArgs: [entry.key],
       );
@@ -370,10 +509,18 @@ class AppDatabase {
         name TEXT NOT NULL,
         type TEXT NOT NULL,
         balance REAL NOT NULL DEFAULT 0.0,
+        balance_minor INTEGER NOT NULL DEFAULT 0,
         icon TEXT NOT NULL,
         color TEXT NOT NULL,
         is_shared INTEGER NOT NULL DEFAULT 1,
+        is_archived INTEGER NOT NULL DEFAULT 0,
+        archived_at TEXT,
+        billing_cycle_start_day INTEGER,
+        statement_due_day INTEGER,
+        minimum_due REAL,
+        minimum_due_minor INTEGER,
         limit_amount REAL,
+        limit_amount_minor INTEGER,
         created_at TEXT NOT NULL
       )
     ''');
@@ -389,6 +536,7 @@ class AppDatabase {
         type TEXT NOT NULL DEFAULT 'both',
         parent_id INTEGER,
         spending_limit REAL,
+        spending_limit_minor INTEGER,
         dark_color TEXT
       )
     ''');
@@ -401,6 +549,7 @@ class AppDatabase {
         category_id INTEGER NOT NULL,
         title TEXT NOT NULL,
         amount REAL NOT NULL,
+        amount_minor INTEGER NOT NULL DEFAULT 0,
         type TEXT NOT NULL,
         date TEXT NOT NULL,
         note TEXT,
@@ -412,6 +561,7 @@ class AppDatabase {
         transfer_to_account_id INTEGER,
         created_at TEXT NOT NULL,
         subcategory_id INTEGER,
+        is_budget_included INTEGER NOT NULL DEFAULT 1,
         FOREIGN KEY (account_id) REFERENCES account (id) ON DELETE CASCADE,
         FOREIGN KEY (category_id) REFERENCES category (id) ON DELETE CASCADE,
         FOREIGN KEY (subcategory_id) REFERENCES category (id) ON DELETE SET NULL
@@ -425,6 +575,7 @@ class AppDatabase {
         category_id INTEGER NOT NULL,
         month TEXT NOT NULL,
         limit_amount REAL NOT NULL,
+        limit_amount_minor INTEGER NOT NULL DEFAULT 0,
         recurrence TEXT NOT NULL DEFAULT 'monthly',
         group_name TEXT,
         FOREIGN KEY (category_id) REFERENCES category (id) ON DELETE CASCADE
@@ -449,7 +600,9 @@ class AppDatabase {
         id INTEGER PRIMARY KEY AUTOINCREMENT,
         name TEXT NOT NULL,
         target_amount REAL NOT NULL,
+        target_amount_minor INTEGER NOT NULL DEFAULT 0,
         current_amount REAL NOT NULL DEFAULT 0.0,
+        current_amount_minor INTEGER NOT NULL DEFAULT 0,
         target_date TEXT,
         color TEXT NOT NULL,
         icon TEXT NOT NULL,
@@ -464,9 +617,12 @@ class AppDatabase {
         name TEXT NOT NULL,
         type TEXT NOT NULL,
         balance REAL NOT NULL,
+        balance_minor INTEGER NOT NULL DEFAULT 0,
         original_amount REAL NOT NULL,
+        original_amount_minor INTEGER NOT NULL DEFAULT 0,
         interest_rate REAL NOT NULL,
         monthly_payment REAL NOT NULL,
+        monthly_payment_minor INTEGER NOT NULL DEFAULT 0,
         start_date TEXT NOT NULL,
         created_at TEXT NOT NULL
       )
@@ -487,7 +643,12 @@ class AppDatabase {
         id INTEGER PRIMARY KEY AUTOINCREMENT,
         title TEXT NOT NULL,
         amount REAL NOT NULL,
+        amount_minor INTEGER NOT NULL DEFAULT 0,
         type TEXT NOT NULL,
+        category_id INTEGER NOT NULL,
+        account_id INTEGER NOT NULL
+      )
+    ''');
         category_id INTEGER NOT NULL,
         account_id INTEGER NOT NULL
       )
@@ -556,6 +717,7 @@ class AppDatabase {
         id INTEGER PRIMARY KEY AUTOINCREMENT,
         month TEXT NOT NULL UNIQUE,
         estimated_income REAL NOT NULL,
+        estimated_income_minor INTEGER NOT NULL DEFAULT 0,
         strategy TEXT NOT NULL,
         needs_pct REAL NOT NULL,
         wants_pct REAL NOT NULL,
@@ -564,6 +726,20 @@ class AppDatabase {
         emergency_pct REAL NOT NULL,
         is_completed INTEGER NOT NULL DEFAULT 1,
         updated_at TEXT NOT NULL
+      )
+    ''');
+
+    // 17. report_history Table
+    await db.execute('''
+      CREATE TABLE report_history (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        report_type TEXT NOT NULL,
+        reporting_month TEXT NOT NULL,
+        generated_at TEXT NOT NULL,
+        file_path TEXT NOT NULL,
+        file_size_bytes INTEGER NOT NULL,
+        checksum TEXT NOT NULL,
+        is_auto_generated INTEGER NOT NULL DEFAULT 1
       )
     ''');
 

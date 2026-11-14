@@ -13,6 +13,7 @@ import 'widgets/plan_tab.dart';
 import 'widgets/track_tab.dart';
 import 'widgets/adjust_tab.dart';
 import 'widgets/review_tab.dart';
+import 'widgets/daily_spending_calendar.dart';
 import '../../models/category.dart';
 
 class BudgetsPage extends ConsumerStatefulWidget {
@@ -576,6 +577,11 @@ class _BudgetsPageState extends ConsumerState<BudgetsPage> {
               ),
             ],
           ),
+          const SizedBox(height: 24),
+
+          // Daily Spending Calendar with Rollover
+          const DailySpendingCalendar(),
+
           const SizedBox(height: 24),
 
           // Core Splits

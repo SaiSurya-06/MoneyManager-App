@@ -3,6 +3,8 @@ import '../core/database/database.dart';
 import '../core/database/daos/budget_dao.dart';
 import '../core/notifications/notification_service.dart';
 import '../models/budget.dart';
+import '../models/transaction.dart';
+import '../core/analytics/daily_budget_calculator.dart';
 
 class BudgetsState {
   final List<Budget> budgets;
@@ -152,7 +154,7 @@ class BudgetsNotifier extends StateNotifier<BudgetsState> {
     final List<Map<String, dynamic>> results = await db.rawQuery('''
       SELECT category_id, SUM(amount) as total
       FROM transaction_log
-      WHERE type = 'expense' AND strftime('%Y-%m', date) = ?
+      WHERE type = 'expense' AND COALESCE(is_budget_included, 1) = 1 AND strftime('%Y-%m', date) = ?
       GROUP BY category_id
     ''', [month]);
 
@@ -175,7 +177,7 @@ class BudgetsNotifier extends StateNotifier<BudgetsState> {
         final result = await db.rawQuery('''
           SELECT SUM(amount) as total
           FROM transaction_log
-          WHERE type = 'expense' AND category_id = ? AND date >= ?
+          WHERE type = 'expense' AND COALESCE(is_budget_included, 1) = 1 AND category_id = ? AND date >= ?
         ''', [budget.categoryId, startOfWeekStr]);
         return (result.first['total'] as num?)?.toDouble() ?? 0.0;
       } else if (budget.recurrence == 'bi-weekly') {
@@ -184,7 +186,7 @@ class BudgetsNotifier extends StateNotifier<BudgetsState> {
         final result = await db.rawQuery('''
           SELECT SUM(amount) as total
           FROM transaction_log
-          WHERE type = 'expense' AND category_id = ? AND date >= ?
+          WHERE type = 'expense' AND COALESCE(is_budget_included, 1) = 1 AND category_id = ? AND date >= ?
         ''', [budget.categoryId, startOfBiWeeklyStr]);
         return (result.first['total'] as num?)?.toDouble() ?? 0.0;
       }
@@ -194,7 +196,7 @@ class BudgetsNotifier extends StateNotifier<BudgetsState> {
     final result = await db.rawQuery('''
       SELECT SUM(amount) as total
       FROM transaction_log
-      WHERE type = 'expense' AND category_id = ? AND strftime('%Y-%m', date) = ?
+      WHERE type = 'expense' AND COALESCE(is_budget_included, 1) = 1 AND category_id = ? AND strftime('%Y-%m', date) = ?
     ''', [budget.categoryId, selectedMonth]);
     
     double totalMonthSpent = (result.first['total'] as num?)?.toDouble() ?? 0.0;
@@ -207,7 +209,31 @@ class BudgetsNotifier extends StateNotifier<BudgetsState> {
   }
 
   Future<double> _calculateRollover(int categoryId, String currentMonthStr) async {
-    return 0.0;
+    final parts = currentMonthStr.split('-');
+    if (parts.length != 2) return 0.0;
+    final year = int.tryParse(parts[0]) ?? DateTime.now().year;
+    final month = int.tryParse(parts[1]) ?? DateTime.now().month;
+
+    final db = await AppDatabase.instance.database;
+    final txRows = await db.query(
+      'transaction_log',
+      where: "type = 'expense' AND COALESCE(is_budget_included, 1) = 1 AND category_id = ? AND strftime('%Y-%m', date) = ?",
+      whereArgs: [categoryId, currentMonthStr],
+    );
+    final txs = txRows.map((r) => Transaction.fromMap(r)).toList();
+
+    final budget = await _budgetDao.getBudgetForCategoryAndMonth(categoryId, currentMonthStr);
+    final budgetLimitMinor = budget?.limitAmountMinor ?? ((budget?.limitAmount ?? 0.0) * 100).toInt();
+
+    final summary = DailySpendingCalculator.calculate(
+      year: year,
+      month: month,
+      monthlyBudgetMinor: budgetLimitMinor,
+      transactions: txs,
+      categoryId: categoryId,
+    );
+
+    return summary.netRolloverBalance;
   }
 
   Future<int> _getOrCreateTotalBudgetCategoryId() async {
@@ -231,7 +257,7 @@ class BudgetsNotifier extends StateNotifier<BudgetsState> {
     final result = await db.rawQuery('''
       SELECT SUM(amount) as total
       FROM transaction_log
-      WHERE type = 'expense' AND category_id != ? AND strftime('%Y-%m', date) = ?
+      WHERE type = 'expense' AND COALESCE(is_budget_included, 1) = 1 AND category_id != ? AND strftime('%Y-%m', date) = ?
     ''', [totalBudgetCatId, month]);
     return (result.first['total'] as num?)?.toDouble() ?? 0.0;
   }
@@ -281,7 +307,7 @@ class BudgetsNotifier extends StateNotifier<BudgetsState> {
     final List<Map<String, dynamic>> result = await db.rawQuery('''
       SELECT SUM(amount) as total
       FROM transaction_log
-      WHERE type = 'expense' AND category_id = ? AND strftime('%Y-%m', date) = ?
+      WHERE type = 'expense' AND COALESCE(is_budget_included, 1) = 1 AND category_id = ? AND strftime('%Y-%m', date) = ?
     ''', [categoryId, month]);
 
     final double currentSpend = (result.first['total'] as num?)?.toDouble() ?? 0.0;

@@ -16,12 +16,22 @@ class TransactionForm extends ConsumerStatefulWidget {
   final Transaction? transaction;
   final DateTime? initialDate;
   final String? initialType; // 'income', 'expense', 'transfer'
+  final String? initialTitle;
+  final double? initialAmount;
+  final int? initialAccountId;
+  final int? initialCategoryId;
+  final bool? initialIsBudgetIncluded;
 
   const TransactionForm({
     super.key,
     this.transaction,
     this.initialDate,
     this.initialType,
+    this.initialTitle,
+    this.initialAmount,
+    this.initialAccountId,
+    this.initialCategoryId,
+    this.initialIsBudgetIncluded,
   });
 
   @override
@@ -48,6 +58,7 @@ class _TransactionFormState extends ConsumerState<TransactionForm> {
 
   String _categorizeMode = 'category'; // 'category' or 'person'
   bool _initializedMode = false;
+  late bool _isBudgetIncluded;
 
   bool _isSplitMode = false;
   List<Map<String, dynamic>> _splits = [];
@@ -83,13 +94,18 @@ class _TransactionFormState extends ConsumerState<TransactionForm> {
   void initState() {
     super.initState();
     final tx = widget.transaction;
-    _titleController = TextEditingController(text: tx?.title ?? '');
-    _amountController = TextEditingController(text: tx?.amount.toString() ?? '');
+    _titleController = TextEditingController(text: tx?.title ?? widget.initialTitle ?? '');
+    _amountController = TextEditingController(
+      text: tx != null
+          ? tx.amount.toString()
+          : (widget.initialAmount != null ? widget.initialAmount.toString() : ''),
+    );
     _noteController = TextEditingController(text: tx?.note ?? '');
     _tagsController = TextEditingController(text: tx?.tags ?? '');
     
     _selectedType = tx?.type ?? widget.initialType ?? 'expense';
-    _selectedAccountId = tx?.accountId;
+    _selectedAccountId = tx?.accountId ?? widget.initialAccountId;
+    _isBudgetIncluded = tx?.isBudgetIncluded ?? widget.initialIsBudgetIncluded ?? true;
     _selectedRecurrence = tx?.recurrence ?? 'none';
     _selectedRecurrenceEndDate = tx?.recurrenceEndDate;
     _selectedDate = tx?.date ?? widget.initialDate ?? DateTime.now();
@@ -100,7 +116,7 @@ class _TransactionFormState extends ConsumerState<TransactionForm> {
     
     _selectedCreditCardAccountId = tx?.transferToAccountId ?? _parseCreditCardTargetAccountId(tx?.note);
 
-    _selectedCategoryId = tx?.categoryId;
+    _selectedCategoryId = tx?.categoryId ?? widget.initialCategoryId;
     _selectedSubcategoryId = tx?.subcategoryId;
 
     if (tx != null && tx.id != null) {
@@ -299,6 +315,13 @@ class _TransactionFormState extends ConsumerState<TransactionForm> {
       return;
     }
 
+    final accounts = ref.read(accountsProvider).accounts;
+    final selectedAcc = accounts.where((a) => a.id == _selectedAccountId).firstOrNull;
+    if (selectedAcc == null || selectedAcc.isArchived) {
+      ToastNotification.show(context, 'Account no longer available — please select an active account', isError: true);
+      return;
+    }
+
     final categories = ref.read(categoriesProvider).categories;
     final selectedCategory = categories.firstWhere(
       (c) => c.id == _selectedCategoryId,
@@ -309,6 +332,11 @@ class _TransactionFormState extends ConsumerState<TransactionForm> {
     if (_selectedType == 'transfer') {
       if (_selectedTargetAccountId == null) {
         ToastNotification.show(context, 'Please select a destination account', isError: true);
+        return;
+      }
+      final destAcc = accounts.where((a) => a.id == _selectedTargetAccountId).firstOrNull;
+      if (destAcc == null || destAcc.isArchived) {
+        ToastNotification.show(context, 'Destination account no longer available — please select an active account', isError: true);
         return;
       }
       if (_selectedAccountId == _selectedTargetAccountId) {
@@ -397,6 +425,7 @@ class _TransactionFormState extends ConsumerState<TransactionForm> {
             tags: tags,
             transferToAccountId: transferToAccountId,
             subcategoryId: _selectedSubcategoryId,
+            isBudgetIncluded: _selectedType == 'expense' ? _isBudgetIncluded : true,
           );
       success = parentId != null;
     } else {
@@ -415,6 +444,7 @@ class _TransactionFormState extends ConsumerState<TransactionForm> {
         tags: tags,
         transferToAccountId: transferToAccountId,
         subcategoryId: _selectedSubcategoryId,
+        isBudgetIncluded: _selectedType == 'expense' ? _isBudgetIncluded : true,
       );
       
       // If updating a split transaction, remove its old child rows first
@@ -692,7 +722,7 @@ class _TransactionFormState extends ConsumerState<TransactionForm> {
               const SizedBox(height: 16),
 
               // Account dropdown
-              if (accounts.isNotEmpty)
+              if (accounts.isNotEmpty) ...[
                 Row(
                   children: [
                     Expanded(
@@ -704,7 +734,25 @@ class _TransactionFormState extends ConsumerState<TransactionForm> {
                         ),
                         dropdownColor: isDark ? const Color(0xFF1E1E2E) : Colors.white,
                         items: accounts.map((acc) {
-                          return DropdownMenuItem(value: acc.id, child: Text(acc.name));
+                          return DropdownMenuItem(
+                            value: acc.id,
+                            child: Row(
+                              children: [
+                                Text(acc.name),
+                                if (acc.isArchived) ...[
+                                  const SizedBox(width: 6),
+                                  const Text(
+                                    '(Archived)',
+                                    style: TextStyle(
+                                      color: Colors.redAccent,
+                                      fontSize: 11,
+                                      fontStyle: FontStyle.italic,
+                                    ),
+                                  ),
+                                ],
+                              ],
+                            ),
+                          );
                         }).toList(),
                         onChanged: (val) {
                           if (val != null) {
@@ -723,6 +771,36 @@ class _TransactionFormState extends ConsumerState<TransactionForm> {
                     ),
                   ],
                 ),
+                () {
+                  final selectedAcc = accounts.where((a) => a.id == _selectedAccountId).firstOrNull;
+                  if (selectedAcc != null && selectedAcc.isArchived) {
+                    return Padding(
+                      padding: const EdgeInsets.only(top: 6.0),
+                      child: Container(
+                        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                        decoration: BoxDecoration(
+                          color: Colors.amber.withValues(alpha: 0.15),
+                          borderRadius: BorderRadius.circular(8),
+                          border: Border.all(color: Colors.amber.withValues(alpha: 0.4)),
+                        ),
+                        child: const Row(
+                          children: [
+                            Icon(Icons.warning_amber_rounded, size: 16, color: Colors.amber),
+                            SizedBox(width: 6),
+                            Expanded(
+                              child: Text(
+                                'Account no longer available — please select an active account',
+                                style: TextStyle(color: Colors.amber, fontSize: 12),
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                    );
+                  }
+                  return const SizedBox.shrink();
+                }(),
+              ],
 
               const SizedBox(height: 16),
 
@@ -1245,6 +1323,29 @@ class _TransactionFormState extends ConsumerState<TransactionForm> {
               ],
 
 
+
+              // Deduct from Budget toggle (Only visible for Expense transactions)
+              if (_selectedType == 'expense') ...[
+                SwitchListTile(
+                  contentPadding: EdgeInsets.zero,
+                  title: const Text(
+                    'Deduct from Budget',
+                    style: TextStyle(fontWeight: FontWeight.bold, fontSize: 14),
+                  ),
+                  subtitle: const Text(
+                    'Include this expense in monthly budget tracking and daily rollover',
+                    style: TextStyle(fontSize: 12, color: Colors.grey),
+                  ),
+                  value: _isBudgetIncluded,
+                  activeColor: const Color(0xFFE53935),
+                  onChanged: (val) {
+                    setState(() {
+                      _isBudgetIncluded = val;
+                    });
+                  },
+                ),
+                const SizedBox(height: 12),
+              ],
 
               // Date Picker
               InkWell(

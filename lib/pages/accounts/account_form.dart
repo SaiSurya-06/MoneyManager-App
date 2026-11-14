@@ -20,6 +20,9 @@ class _AccountFormState extends ConsumerState<AccountForm> {
   late TextEditingController _nameController;
   late TextEditingController _balanceController;
   late TextEditingController _limitController;
+  late TextEditingController _billingStartController;
+  late TextEditingController _statementDueController;
+  late TextEditingController _minimumDueController;
   late String _selectedType;
   late String _selectedIcon;
   late String _selectedColor;
@@ -54,6 +57,9 @@ class _AccountFormState extends ConsumerState<AccountForm> {
     _nameController = TextEditingController(text: acc?.name ?? '');
     _balanceController = TextEditingController(text: acc?.balance.toString() ?? '0.0');
     _limitController = TextEditingController(text: acc?.limitAmount?.toString() ?? '');
+    _billingStartController = TextEditingController(text: acc?.billingCycleStartDay?.toString() ?? '');
+    _statementDueController = TextEditingController(text: acc?.statementDueDay?.toString() ?? '');
+    _minimumDueController = TextEditingController(text: acc?.minimumDue?.toString() ?? '');
     _selectedType = acc?.type ?? 'Bank';
     _selectedIcon = acc?.icon ?? 'account_balance';
     _selectedColor = acc?.color ?? '#1E88E5';
@@ -68,6 +74,9 @@ class _AccountFormState extends ConsumerState<AccountForm> {
     _nameController.dispose();
     _balanceController.dispose();
     _limitController.dispose();
+    _billingStartController.dispose();
+    _statementDueController.dispose();
+    _minimumDueController.dispose();
     super.dispose();
   }
 
@@ -77,6 +86,9 @@ class _AccountFormState extends ConsumerState<AccountForm> {
     final name = _nameController.text.trim();
     final balance = double.tryParse(_balanceController.text) ?? 0.0;
     final limit = _selectedType == 'Credit Card' ? (double.tryParse(_limitController.text) ?? 0.0) : null;
+    final billingStart = _selectedType == 'Credit Card' ? int.tryParse(_billingStartController.text) : null;
+    final statementDue = _selectedType == 'Credit Card' ? int.tryParse(_statementDueController.text) : null;
+    final minimumDue = _selectedType == 'Credit Card' ? double.tryParse(_minimumDueController.text) : null;
     
     bool success;
     if (widget.account == null) {
@@ -89,6 +101,9 @@ class _AccountFormState extends ConsumerState<AccountForm> {
             _selectedColor,
             true,
             limit,
+            billingStart,
+            statementDue,
+            minimumDue,
           );
       success = newId != null;
     } else {
@@ -101,6 +116,9 @@ class _AccountFormState extends ConsumerState<AccountForm> {
         color: _selectedColor,
         isShared: true,
         limitAmount: limit,
+        billingCycleStartDay: billingStart,
+        statementDueDay: statementDue,
+        minimumDue: minimumDue,
       );
       success = await ref.read(accountsProvider.notifier).updateAccount(updated);
     }
@@ -114,12 +132,70 @@ class _AccountFormState extends ConsumerState<AccountForm> {
     }
   }
 
+  Future<void> _toggleArchive() async {
+    final acc = widget.account!;
+    final accId = acc.id!;
+    if (acc.isArchived) {
+      final success = await ref.read(accountsProvider.notifier).restoreAccount(accId);
+      if (success && mounted) {
+        ToastNotification.show(context, 'Account restored successfully.');
+        Navigator.pop(context);
+      }
+    } else {
+      final success = await ref.read(accountsProvider.notifier).archiveAccount(accId);
+      if (success && mounted) {
+        ToastNotification.show(context, 'Account archived. It is now hidden from active selection.');
+        Navigator.pop(context);
+      }
+    }
+  }
+
   Future<void> _delete() async {
+    final accId = widget.account!.id!;
+    final txCount = await ref.read(accountsProvider.notifier).getTransactionCount(accId);
+
+    if (txCount > 0) {
+      if (!mounted) return;
+      final shouldArchive = await showDialog<bool>(
+        context: context,
+        builder: (context) => AlertDialog(
+          title: const Text('Account Has Transactions'),
+          content: Text(
+            'This account has $txCount recorded transaction(s). To protect your financial history and ensure reporting integrity, it cannot be permanently deleted.\n\n'
+            'Would you like to archive this account instead? Archiving preserves all historical records while hiding the account from daily transactions.',
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(context, false),
+              child: const Text('Cancel'),
+            ),
+            ElevatedButton(
+              style: ElevatedButton.styleFrom(
+                backgroundColor: const Color(0xFFD4AF37),
+                foregroundColor: Colors.black,
+              ),
+              onPressed: () => Navigator.pop(context, true),
+              child: const Text('Archive Account'),
+            ),
+          ],
+        ),
+      );
+
+      if (shouldArchive == true && mounted) {
+        final success = await ref.read(accountsProvider.notifier).archiveAccount(accId);
+        if (success && mounted) {
+          ToastNotification.show(context, 'Account archived successfully.');
+          Navigator.pop(context);
+        }
+      }
+      return;
+    }
+
     final confirmed = await showDialog<bool>(
       context: context,
       builder: (context) => AlertDialog(
         title: const Text('Delete Account'),
-        content: const Text('Are you sure you want to delete this account? All associated transactions will be permanently deleted.'),
+        content: const Text('This account has 0 transactions. Are you sure you want to permanently delete it?'),
         actions: [
           TextButton(
             onPressed: () => Navigator.pop(context, false),
@@ -138,10 +214,10 @@ class _AccountFormState extends ConsumerState<AccountForm> {
     );
 
     if (confirmed == true && mounted) {
-      final success = await ref.read(accountsProvider.notifier).deleteAccount(widget.account!.id!);
+      final success = await ref.read(accountsProvider.notifier).deleteAccount(accId);
       if (success && mounted) {
         ToastNotification.show(context, 'Account deleted.');
-        Navigator.pop(context); // Close AccountForm
+        Navigator.pop(context);
       }
     }
   }
@@ -149,26 +225,44 @@ class _AccountFormState extends ConsumerState<AccountForm> {
   @override
   Widget build(BuildContext context) {
     final isDark = Theme.of(context).brightness == Brightness.dark;
-    
+    final currency = ref.watch(authProvider).profile?.preferredCurrency ?? 'USD';
+
+    // Mock an account for live preview
+    final previewAccount = Account(
+      id: widget.account?.id,
+      name: _nameController.text.trim().isEmpty ? 'Account Preview' : _nameController.text.trim(),
+      type: _selectedType,
+      balance: double.tryParse(_balanceController.text) ?? 0.0,
+      icon: _selectedIcon,
+      color: _selectedColor,
+      isShared: true,
+      createdAt: widget.account?.createdAt ?? DateTime.now(),
+      limitAmount: double.tryParse(_limitController.text),
+      isArchived: widget.account?.isArchived ?? false,
+      billingCycleStartDay: int.tryParse(_billingStartController.text),
+      statementDueDay: int.tryParse(_statementDueController.text),
+      minimumDue: double.tryParse(_minimumDueController.text),
+    );
+
     return Container(
       decoration: BoxDecoration(
-        color: isDark ? const Color(0xFF161625) : Colors.white,
-        borderRadius: const BorderRadius.vertical(top: Radius.circular(28)),
+        color: isDark ? const Color(0xFF141420) : const Color(0xFFF8F9FA),
+        borderRadius: const BorderRadius.vertical(top: Radius.circular(24)),
       ),
       padding: EdgeInsets.only(
-        left: 24,
-        right: 24,
-        top: 24,
+        top: 20,
+        left: 20,
+        right: 20,
         bottom: MediaQuery.of(context).viewInsets.bottom + 24,
       ),
-      child: SingleChildScrollView(
-        child: Form(
-          key: _formKey,
+      child: Form(
+        key: _formKey,
+        child: SingleChildScrollView(
           child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
             mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
-              // Pull Bar Indicator
+              // Header Drag Handle
               Center(
                 child: Container(
                   width: 40,
@@ -180,67 +274,42 @@ class _AccountFormState extends ConsumerState<AccountForm> {
                 ),
               ),
               const SizedBox(height: 16),
-              
+
               Text(
-                widget.account == null ? 'Create Account' : 'Edit Account',
-                style: const TextStyle(
-                  fontSize: 20,
-                  fontWeight: FontWeight.bold,
-                  fontFamily: 'Inter',
-                ),
+                widget.account == null ? 'Create New Account' : 'Edit Account',
+                style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold, fontFamily: 'Inter'),
+                textAlign: TextAlign.center,
               ),
-              
               const SizedBox(height: 16),
 
-              Center(
-                child: SizedBox(
-                  width: MediaQuery.of(context).size.width * 0.45,
-                  height: 172.0,
-                  child: AccountCard(
-                    account: Account(
-                      id: widget.account?.id,
-                      name: _nameController.text.trim().isEmpty ? 'Preview Account' : _nameController.text.trim(),
-                      type: _selectedType,
-                      balance: double.tryParse(_balanceController.text.trim()) ?? 0.0,
-                      icon: _selectedIcon,
-                      color: _selectedColor,
-                      isShared: true,
-                      createdAt: widget.account?.createdAt ?? DateTime.now(),
-                      limitAmount: _selectedType == 'Credit Card' ? (double.tryParse(_limitController.text.trim()) ?? 0.0) : null,
-                    ),
-                    currency: ref.watch(authProvider).profile?.preferredCurrency ?? 'USD',
-                    onTap: () {},
-                    onLongPress: () {},
-                  ),
-                ),
+              // Dynamic Card Preview
+              AccountCard(
+                account: previewAccount,
+                currency: currency,
               ),
-
               const SizedBox(height: 20),
 
               // Name Field
               TextFormField(
                 controller: _nameController,
-                keyboardType: TextInputType.text,
-                textCapitalization: TextCapitalization.words,
                 decoration: const InputDecoration(
                   labelText: 'Account Name',
-                  prefixIcon: Icon(Icons.badge_outlined),
+                  prefixIcon: Icon(Icons.edit_outlined),
                 ),
                 validator: (val) {
                   if (val == null || val.trim().isEmpty) return 'Please enter an account name';
                   return null;
                 },
               ),
-              
               const SizedBox(height: 16),
 
-              // Balance Field
+              // Initial / Current Balance Field
               TextFormField(
                 controller: _balanceController,
                 keyboardType: const TextInputType.numberWithOptions(decimal: true),
-                decoration: const InputDecoration(
-                  labelText: 'Balance',
-                  prefixIcon: Icon(Icons.account_balance_wallet_outlined),
+                decoration: InputDecoration(
+                  labelText: _selectedType == 'Credit Card' ? 'Outstanding Balance (negative for debt)' : 'Current Balance',
+                  prefixIcon: const Icon(Icons.account_balance_wallet_outlined),
                 ),
                 validator: (val) {
                   if (val == null || val.isEmpty) return 'Please enter a balance';
@@ -255,7 +324,7 @@ class _AccountFormState extends ConsumerState<AccountForm> {
                   controller: _limitController,
                   keyboardType: const TextInputType.numberWithOptions(decimal: true),
                   decoration: const InputDecoration(
-                    labelText: 'Credit Limit',
+                    labelText: 'Total Credit Limit',
                     prefixIcon: Icon(Icons.credit_score_outlined),
                   ),
                   validator: (val) {
@@ -263,6 +332,55 @@ class _AccountFormState extends ConsumerState<AccountForm> {
                     if (double.tryParse(val) == null || double.parse(val) <= 0) return 'Please enter a valid limit';
                     return null;
                   },
+                ),
+                const SizedBox(height: 16),
+                Row(
+                  children: [
+                    Expanded(
+                      child: TextFormField(
+                        controller: _billingStartController,
+                        keyboardType: TextInputType.number,
+                        decoration: const InputDecoration(
+                          labelText: 'Cycle Start Day (1-31)',
+                          prefixIcon: Icon(Icons.calendar_today_outlined),
+                        ),
+                        validator: (val) {
+                          if (val != null && val.isNotEmpty) {
+                            final day = int.tryParse(val);
+                            if (day == null || day < 1 || day > 31) return '1 - 31';
+                          }
+                          return null;
+                        },
+                      ),
+                    ),
+                    const SizedBox(width: 12),
+                    Expanded(
+                      child: TextFormField(
+                        controller: _statementDueController,
+                        keyboardType: TextInputType.number,
+                        decoration: const InputDecoration(
+                          labelText: 'Payment Due Day (1-31)',
+                          prefixIcon: Icon(Icons.event_outlined),
+                        ),
+                        validator: (val) {
+                          if (val != null && val.isNotEmpty) {
+                            final day = int.tryParse(val);
+                            if (day == null || day < 1 || day > 31) return '1 - 31';
+                          }
+                          return null;
+                        },
+                      ),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 16),
+                TextFormField(
+                  controller: _minimumDueController,
+                  keyboardType: const TextInputType.numberWithOptions(decimal: true),
+                  decoration: const InputDecoration(
+                    labelText: 'Minimum Amount Due (optional)',
+                    prefixIcon: Icon(Icons.price_check_outlined),
+                  ),
                 ),
               ],
 
@@ -396,7 +514,23 @@ class _AccountFormState extends ConsumerState<AccountForm> {
                 onPressed: _save,
                 child: Text(widget.account == null ? 'Create Account' : 'Save Changes'),
               ),
+
               if (widget.account != null) ...[
+                const SizedBox(height: 12),
+                OutlinedButton.icon(
+                  style: OutlinedButton.styleFrom(
+                    foregroundColor: const Color(0xFFD4AF37),
+                    side: const BorderSide(color: Color(0xFFD4AF37)),
+                    minimumSize: const Size(double.infinity, 48),
+                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                  ),
+                  onPressed: _toggleArchive,
+                  icon: Icon(widget.account!.isArchived ? Icons.unarchive_outlined : Icons.archive_outlined),
+                  label: Text(
+                    widget.account!.isArchived ? 'Restore Account' : 'Archive Account',
+                    style: const TextStyle(fontWeight: FontWeight.bold),
+                  ),
+                ),
                 const SizedBox(height: 12),
                 OutlinedButton.icon(
                   style: OutlinedButton.styleFrom(
@@ -417,4 +551,3 @@ class _AccountFormState extends ConsumerState<AccountForm> {
     );
   }
 }
-

@@ -345,6 +345,28 @@ class NotificationService {
     }
   }
 
+  Future<void> showMonthlyReportAlert(String monthStr) async {
+    try {
+      const AndroidNotificationDetails androidDetails = AndroidNotificationDetails(
+        'monthly_reports',
+        'Monthly Financial Reports',
+        channelDescription: 'Alerts when automated monthly financial and budget PDF reports are generated',
+        importance: Importance.high,
+        priority: Priority.high,
+        playSound: true,
+      );
+      const NotificationDetails platformDetails = NotificationDetails(android: androidDetails);
+      await _localNotificationsPlugin.show(
+        404,
+        '📄 Monthly Financial Reports Ready',
+        'Your financial analysis and budget performance reports for $monthStr are ready.',
+        platformDetails,
+      );
+    } catch (e, stack) {
+      print('[NotificationService] showMonthlyReportAlert error: $e\n$stack');
+    }
+  }
+
   Future<void> cancelDailyReminder() async {
     try {
       await _localNotificationsPlugin.cancel(101);

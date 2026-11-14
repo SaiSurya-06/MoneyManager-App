@@ -24,13 +24,17 @@ class AccountTransactionsPage extends ConsumerStatefulWidget {
 
 class _AccountTransactionsPageState extends ConsumerState<AccountTransactionsPage> {
   DateTimeRange? _selectedDateRange;
+  int _selectedViewTab = 0; // 0: All, 1: Payments (for CC)
 
-  void _openTransactionForm(BuildContext context, Transaction tx) {
+  void _openTransactionForm(BuildContext context, [Transaction? tx]) {
     showModalBottomSheet(
       context: context,
       isScrollControlled: true,
       backgroundColor: Colors.transparent,
-      builder: (context) => TransactionForm(transaction: tx),
+      builder: (context) => TransactionForm(
+        transaction: tx,
+        initialType: tx == null && widget.account.type == 'Credit Card' ? 'transfer' : null,
+      ),
     );
   }
 
@@ -43,9 +47,10 @@ class _AccountTransactionsPageState extends ConsumerState<AccountTransactionsPag
 
     final currency = authState.profile?.preferredCurrency ?? 'USD';
     final isDark = Theme.of(context).brightness == Brightness.dark;
+    final isCreditCard = account.type == 'Credit Card';
 
     // Filter transactions that affect this account
-    final List<Transaction> accountTxs = txState.transactions.where((tx) {
+    final List<Transaction> allAccountTxs = txState.transactions.where((tx) {
       bool matchesAccount = false;
       if (tx.accountId == account.id) {
         matchesAccount = true;
@@ -64,6 +69,15 @@ class _AccountTransactionsPageState extends ConsumerState<AccountTransactionsPag
       return true;
     }).toList();
 
+    // Specific payment transactions into this credit card
+    final List<Transaction> paymentTxs = allAccountTxs.where((tx) {
+      final isTransferIn = tx.type == 'transfer' && tx.effectiveDestinationAccountId == account.id;
+      final isCcPaymentIn = tx.note != null && tx.note!.contains('Credit Card Payment to target account ID: ${account.id}');
+      return isTransferIn || isCcPaymentIn;
+    }).toList();
+
+    final displayedTxs = (isCreditCard && _selectedViewTab == 1) ? paymentTxs : allAccountTxs;
+
     // Map categories for quick lookup
     final Map<int, Map<String, dynamic>> categoryMap = {};
     for (var cat in categoriesState.categories) {
@@ -79,11 +93,11 @@ class _AccountTransactionsPageState extends ConsumerState<AccountTransactionsPag
 
     // Calculate running balance history
     final List<FlSpot> spots = [];
-    if (accountTxs.isNotEmpty) {
+    if (allAccountTxs.isNotEmpty) {
       double running = account.balance;
       final List<double> values = [running];
       
-      final backwardsTxs = List<Transaction>.from(accountTxs)..sort((a, b) => b.date.compareTo(a.date));
+      final backwardsTxs = List<Transaction>.from(allAccountTxs)..sort((a, b) => b.date.compareTo(a.date));
       for (var tx in backwardsTxs) {
         double change = 0.0;
         if (tx.type == 'income') {
@@ -152,29 +166,21 @@ class _AccountTransactionsPageState extends ConsumerState<AccountTransactionsPag
               }
             },
           ),
-          IconButton(
-            tooltip: 'Reconcile Bank Statement',
-            icon: const Icon(Icons.receipt_long),
-            onPressed: () async {
-              final items = await ref.read(transactionsProvider.notifier).parseStatementCsv(account.id!);
-              if (items != null && items.isNotEmpty && context.mounted) {
-                _showReconciliationDialog(context, ref, items, currency, account.id!);
-              } else if (items != null && items.isEmpty && context.mounted) {
-                ToastNotification.show(context, 'Statement contains no valid transactions.');
-              }
-            },
-          ),
+          if (isCreditCard)
+            IconButton(
+              icon: const Icon(Icons.payment),
+              tooltip: 'Make CC Payment',
+              onPressed: () => _openTransactionForm(context),
+            ),
         ],
       ),
       body: Column(
         children: [
-          // Header Card showing Account Balance info
+          // Account Summary Card
           Padding(
-            padding: const EdgeInsets.all(16.0),
+            padding: const EdgeInsets.symmetric(horizontal: 16.0, vertical: 8.0),
             child: GlassmorphismCard(
-              color: isDark ? cardColor.withValues(alpha: 0.1) : cardColor.withValues(alpha: 0.05),
-              borderColor: cardColor.withValues(alpha: 0.15),
-              padding: const EdgeInsets.all(20.0),
+              padding: const EdgeInsets.all(18.0),
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
@@ -182,60 +188,116 @@ class _AccountTransactionsPageState extends ConsumerState<AccountTransactionsPag
                     mainAxisAlignment: MainAxisAlignment.spaceBetween,
                     children: [
                       Text(
-                        account.type.toUpperCase(),
+                        isCreditCard ? 'AVAILABLE CREDIT' : 'CURRENT BALANCE',
                         style: const TextStyle(
                           fontSize: 10,
                           fontWeight: FontWeight.bold,
                           color: Colors.grey,
                           letterSpacing: 1.0,
+                          fontFamily: 'Inter',
                         ),
                       ),
-                      Icon(
-                        account.isShared ? Icons.people_outline : Icons.person_outline,
-                        color: Colors.grey,
-                        size: 16,
-                      ),
+                      if (account.isArchived)
+                        Container(
+                          padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                          decoration: BoxDecoration(
+                            color: const Color(0xFFD4AF37).withValues(alpha: 0.2),
+                            borderRadius: BorderRadius.circular(4),
+                          ),
+                          child: const Text(
+                            'ARCHIVED',
+                            style: TextStyle(fontSize: 9, fontWeight: FontWeight.bold, color: Color(0xFFD4AF37)),
+                          ),
+                        ),
                     ],
                   ),
-                  const SizedBox(height: 8),
+                  const SizedBox(height: 6),
                   Text(
-                    CurrencyFormatter.format(account.balance, currency),
+                    isCreditCard 
+                        ? CurrencyFormatter.format(account.availableCredit, currency)
+                        : CurrencyFormatter.format(account.balance, currency),
                     style: TextStyle(
-                      fontSize: 28,
+                      fontSize: 26,
                       fontWeight: FontWeight.bold,
-                      color: account.balance >= 0 
-                          ? (isDark ? Colors.white : const Color(0xFF1A1A26))
-                          : const Color(0xFFE53935),
+                      color: isCreditCard
+                          ? (account.availableCredit >= 0 ? (isDark ? Colors.white : const Color(0xFF1A1A26)) : const Color(0xFFE53935))
+                          : (account.balance >= 0 ? (isDark ? Colors.white : const Color(0xFF1A1A26)) : const Color(0xFFE53935)),
                       fontFamily: 'Inter',
                     ),
                   ),
-                  if (account.type == 'Credit Card') ...[
-                    const SizedBox(height: 8),
+                  if (isCreditCard) ...[
+                    const SizedBox(height: 10),
                     Row(
+                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
                       children: [
-                        Icon(
-                          Icons.warning_amber_rounded,
-                          color: account.pendingPayment > 0 ? const Color(0xFFE53935) : Colors.green,
-                          size: 16,
-                        ),
-                        const SizedBox(width: 6),
                         Text(
-                          'Pending Payment: ${CurrencyFormatter.format(account.pendingPayment < 0 ? 0.0 : account.pendingPayment, currency)}',
+                          'Outstanding Debt: ${CurrencyFormatter.format(account.pendingPayment, currency)}',
                           style: TextStyle(
-                            fontSize: 13,
+                            fontSize: 12,
                             fontWeight: FontWeight.w600,
-                            color: account.pendingPayment > 0
-                                ? const Color(0xFFE53935)
-                                : Colors.green,
+                            color: account.pendingPayment > 0 ? const Color(0xFFE53935) : Colors.green,
                           ),
+                        ),
+                        Text(
+                          'Limit: ${CurrencyFormatter.format(account.limitAmount ?? 0, currency)}',
+                          style: const TextStyle(fontSize: 12, color: Colors.grey),
                         ),
                       ],
                     ),
+                    if (account.billingCycleStartDay != null || account.statementDueDay != null) ...[
+                      const SizedBox(height: 6),
+                      Text(
+                        'Billing Cycle: Day ${account.billingCycleStartDay ?? '-'} • Payment Due: Day ${account.statementDueDay ?? '-'}',
+                        style: const TextStyle(fontSize: 11, color: Colors.grey, fontFamily: 'Inter'),
+                      ),
+                    ],
+                    if (account.minimumDue != null && account.minimumDue! > 0) ...[
+                      const SizedBox(height: 4),
+                      Text(
+                        'Minimum Due: ${CurrencyFormatter.format(account.minimumDue!, currency)}',
+                        style: const TextStyle(fontSize: 11, fontWeight: FontWeight.w600, color: Color(0xFFD4AF37)),
+                      ),
+                    ],
                   ],
                 ],
               ),
             ),
           ),
+
+          if (isCreditCard)
+            Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 16.0, vertical: 4.0),
+              child: Row(
+                children: [
+                  Expanded(
+                    child: ChoiceChip(
+                      label: Center(
+                        child: Text('All Activity (${allAccountTxs.length})', style: const TextStyle(fontSize: 11, fontWeight: FontWeight.bold)),
+                      ),
+                      selected: _selectedViewTab == 0,
+                      onSelected: (val) {
+                        if (val) setState(() => _selectedViewTab = 0);
+                      },
+                      selectedColor: const Color(0xFFE53935).withValues(alpha: 0.15),
+                    ),
+                  ),
+                  const SizedBox(width: 10),
+                  Expanded(
+                    child: ChoiceChip(
+                      label: Center(
+                        child: Text('Payment History (${paymentTxs.length})', style: const TextStyle(fontSize: 11, fontWeight: FontWeight.bold)),
+                      ),
+                      selected: _selectedViewTab == 1,
+                      onSelected: (val) {
+                        if (val) setState(() => _selectedViewTab = 1);
+                      },
+                      selectedColor: Colors.green.withValues(alpha: 0.15),
+                      labelStyle: TextStyle(color: _selectedViewTab == 1 ? Colors.green : null),
+                    ),
+                  ),
+                ],
+              ),
+            ),
 
           if (_selectedDateRange != null)
             Padding(
@@ -255,136 +317,24 @@ class _AccountTransactionsPageState extends ConsumerState<AccountTransactionsPag
               ),
             ),
 
-          Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 16.0, vertical: 8.0),
-            child: GlassmorphismCard(
-              padding: const EdgeInsets.all(16.0),
-              child: spots.length >= 2
-                  ? Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        const Text(
-                          'BALANCE TREND (LAST 15 TXS)',
-                          style: TextStyle(
-                            fontSize: 9,
-                            fontWeight: FontWeight.bold,
-                            color: Colors.grey,
-                            letterSpacing: 1.0,
-                            fontFamily: 'Inter',
-                          ),
-                        ),
-                        const SizedBox(height: 16),
-                        SizedBox(
-                          height: 100,
-                          child: LineChart(
-                            LineChartData(
-                              gridData: const FlGridData(show: false),
-                              titlesData: const FlTitlesData(
-                                show: true,
-                                leftTitles: AxisTitles(sideTitles: SideTitles(showTitles: false)),
-                                rightTitles: AxisTitles(sideTitles: SideTitles(showTitles: false)),
-                                topTitles: AxisTitles(sideTitles: SideTitles(showTitles: false)),
-                                bottomTitles: AxisTitles(sideTitles: SideTitles(showTitles: false)),
-                              ),
-                              borderData: FlBorderData(show: false),
-                              lineBarsData: [
-                                LineChartBarData(
-                                  spots: spots,
-                                  isCurved: true,
-                                  color: cardColor,
-                                  barWidth: 2.5,
-                                  isStrokeCapRound: true,
-                                  dotData: const FlDotData(show: false),
-                                  belowBarData: BarAreaData(
-                                    show: true,
-                                    gradient: LinearGradient(
-                                      colors: [
-                                        cardColor.withValues(alpha: 0.18),
-                                        cardColor.withValues(alpha: 0.0),
-                                      ],
-                                      begin: Alignment.topCenter,
-                                      end: Alignment.bottomCenter,
-                                    ),
-                                  ),
-                                ),
-                              ],
-                              lineTouchData: LineTouchData(
-                                touchTooltipData: LineTouchTooltipData(
-                                  getTooltipColor: (_) => isDark ? const Color(0xFF1E1E2E) : Colors.white,
-                                  getTooltipItems: (touchedSpots) {
-                                    return touchedSpots.map((spot) {
-                                      final val = spot.y;
-                                      return LineTooltipItem(
-                                        CurrencyFormatter.format(val, currency),
-                                        TextStyle(
-                                          color: isDark ? Colors.white : Colors.black,
-                                          fontWeight: FontWeight.bold,
-                                          fontSize: 11,
-                                        ),
-                                      );
-                                    }).toList();
-                                  },
-                                ),
-                              ),
-                            ),
-                          ),
-                        ),
-                      ],
-                    )
-                  : SizedBox(
-                      width: double.infinity,
-                      height: 125,
-                      child: Column(
-                        mainAxisAlignment: MainAxisAlignment.center,
-                        children: [
-                          Icon(
-                            Icons.show_chart_rounded,
-                            color: isDark ? Colors.white30 : Colors.black26,
-                            size: 32,
-                          ),
-                          const SizedBox(height: 8),
-                          Text(
-                            'No Trend Data Yet',
-                            style: TextStyle(
-                              fontSize: 14,
-                              fontWeight: FontWeight.w600,
-                              color: isDark ? Colors.white30 : Colors.black26,
-                              fontFamily: 'Inter',
-                            ),
-                          ),
-                          const SizedBox(height: 4),
-                          Text(
-                            'Requires at least 2 transactions to display a trend line.',
-                            style: TextStyle(
-                              fontSize: 11,
-                              color: isDark ? Colors.white30 : Colors.black26,
-                              fontFamily: 'Inter',
-                            ),
-                          ),
-                        ],
-                      ),
-                    ),
-            ),
-          ),
-
-          const Divider(height: 1, thickness: 0.5),
-
-          // Transactions List
+          // Transactions / Payment List
           Expanded(
             child: txState.isLoading
                 ? const Center(child: CircularProgressIndicator(color: Color(0xFFE53935)))
-                : accountTxs.isEmpty
+                : displayedTxs.isEmpty
                     ? Center(
                         child: Text(
-                          'No transactions logged for this account.',
+                          isCreditCard && _selectedViewTab == 1
+                              ? 'No bill payments recorded yet for this card.'
+                              : 'No transactions logged for this account.',
                           style: TextStyle(color: isDark ? Colors.white30 : Colors.black38),
                         ),
                       )
                     : ListView.builder(
                         padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-                        itemCount: accountTxs.length,
+                        itemCount: displayedTxs.length,
                         itemBuilder: (context, index) {
-                          final tx = accountTxs[index];
+                          final tx = displayedTxs[index];
                           
                           // Resolve category details
                           final cat = categoryMap[tx.categoryId] ?? {
@@ -416,159 +366,6 @@ class _AccountTransactionsPageState extends ConsumerState<AccountTransactionsPag
           ),
         ],
       ),
-    );
-  }
-
-  void _showReconciliationDialog(BuildContext context, WidgetRef ref, List<ReconciliationItem> items, String currency, int accountId) {
-    showModalBottomSheet(
-      context: context,
-      isScrollControlled: true,
-      backgroundColor: Colors.transparent,
-      builder: (context) {
-        final isDark = Theme.of(context).brightness == Brightness.dark;
-        final unmatchedCount = items.where((it) => !it.isMatched).length;
-        
-        return StatefulBuilder(
-          builder: (context, setModalState) => Container(
-            height: MediaQuery.of(context).size.height * 0.85,
-            decoration: BoxDecoration(
-              color: isDark ? const Color(0xFF161625) : Colors.white,
-              borderRadius: const BorderRadius.vertical(top: Radius.circular(28)),
-            ),
-            padding: const EdgeInsets.all(24),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Center(
-                  child: Container(
-                    width: 40,
-                    height: 4,
-                    decoration: BoxDecoration(
-                      color: Colors.grey.withValues(alpha: 0.3),
-                      borderRadius: BorderRadius.circular(2),
-                    ),
-                  ),
-                ),
-                const SizedBox(height: 16),
-                const Text(
-                  'Auto-Reconciliation',
-                  style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold, fontFamily: 'Inter'),
-                ),
-                const SizedBox(height: 6),
-                Text(
-                  'We matched transactions from your statement with entries in the app. Unmatched transactions can be imported.',
-                  style: TextStyle(fontSize: 12, color: isDark ? Colors.white54 : Colors.black54),
-                ),
-                const SizedBox(height: 16),
-                Expanded(
-                  child: ListView.builder(
-                    itemCount: items.length,
-                    itemBuilder: (context, idx) {
-                      final item = items[idx];
-                      final amountColor = item.type == 'income' ? const Color(0xFF4CAF50) : const Color(0xFFE53935);
-                      final sign = item.type == 'income' ? '+' : '-';
-                      
-                      return Container(
-                        margin: const EdgeInsets.only(bottom: 8),
-                        padding: const EdgeInsets.all(12),
-                        decoration: BoxDecoration(
-                          color: isDark ? Colors.white.withValues(alpha: 0.03) : Colors.black.withValues(alpha: 0.02),
-                          borderRadius: BorderRadius.circular(16),
-                          border: Border.all(
-                            color: item.isMatched 
-                                ? const Color(0xFF4CAF50).withValues(alpha: 0.3) 
-                                : Colors.grey.withValues(alpha: 0.15),
-                          ),
-                        ),
-                        child: Row(
-                          mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                          children: [
-                            Expanded(
-                              child: Column(
-                                crossAxisAlignment: CrossAxisAlignment.start,
-                                children: [
-                                  Text(
-                                    item.description,
-                                    maxLines: 1,
-                                    overflow: TextOverflow.ellipsis,
-                                    style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 13),
-                                  ),
-                                  const SizedBox(height: 4),
-                                  Row(
-                                    children: [
-                                      Text(
-                                        DateFormat('MMM dd, yyyy').format(item.date),
-                                        style: const TextStyle(fontSize: 10, color: Colors.grey),
-                                      ),
-                                      const SizedBox(width: 8),
-                                      if (item.isMatched)
-                                        Container(
-                                          padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
-                                          decoration: BoxDecoration(
-                                            color: const Color(0xFF4CAF50).withValues(alpha: 0.15),
-                                            borderRadius: BorderRadius.circular(4),
-                                          ),
-                                          child: const Row(
-                                            mainAxisSize: MainAxisSize.min,
-                                            children: [
-                                              Icon(Icons.check, size: 8, color: Color(0xFF4CAF50)),
-                                              SizedBox(width: 2),
-                                              Text('Matched', style: TextStyle(fontSize: 8, color: Color(0xFF4CAF50), fontWeight: FontWeight.bold)),
-                                            ],
-                                          ),
-                                        ),
-                                    ],
-                                  ),
-                                ],
-                              ),
-                            ),
-                            Text(
-                              '$sign${CurrencyFormatter.format(item.amount, currency)}',
-                              style: TextStyle(fontWeight: FontWeight.bold, fontSize: 13, color: amountColor),
-                            ),
-                          ],
-                        ),
-                      );
-                    },
-                  ),
-                ),
-                const SizedBox(height: 16),
-                Row(
-                  children: [
-                    Expanded(
-                      child: OutlinedButton(
-                        onPressed: () => Navigator.pop(context),
-                        child: const Text('Cancel'),
-                      ),
-                    ),
-                    const SizedBox(width: 12),
-                    Expanded(
-                      child: ElevatedButton(
-                        style: ElevatedButton.styleFrom(
-                          backgroundColor: unmatchedCount > 0 ? const Color(0xFFE53935) : Colors.grey,
-                        ),
-                        onPressed: unmatchedCount > 0 
-                            ? () async {
-                                final success = await ref.read(transactionsProvider.notifier).importReconciledTransactions(
-                                  accountId: accountId,
-                                  items: items,
-                                );
-                                if (success && context.mounted) {
-                                  ToastNotification.show(context, 'Imported $unmatchedCount unmatched transactions.');
-                                  Navigator.pop(context);
-                                }
-                              }
-                            : null,
-                        child: Text('Import ($unmatchedCount)'),
-                      ),
-                    ),
-                  ],
-                ),
-              ],
-            ),
-          ),
-        );
-      },
     );
   }
 }
