@@ -83,7 +83,7 @@ jobs:
         id: setup-ndk
         with:
           ndk-version: r27b
-          cache: true
+          local-cache: true
           link-to-sdk: true
 
       - name: 🐘 Set up Gradle cache
