@@ -18,6 +18,7 @@ class Budget with _$Budget {
   }) = _Budget;
 
   int get limitAmountMinorUnits => Money.fromMajorUnits(limitAmount).minorUnits;
+  int get limitAmountMinor => limitAmountMinorUnits;
 
   factory Budget.fromJson(Map<String, dynamic> json) => _$BudgetFromJson(json);
 

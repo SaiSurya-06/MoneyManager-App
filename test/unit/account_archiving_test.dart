@@ -1,5 +1,5 @@
 import 'package:flutter_test/flutter_test.dart';
-import 'package:sqflite_common_ffi/sqflite_ffi.dart';
+import 'package:sqflite_common_ffi/sqflite_ffi.dart' hide Transaction;
 import 'package:money_manager/core/database/database.dart';
 import 'package:money_manager/core/database/daos/account_dao.dart';
 import 'package:money_manager/core/database/daos/transaction_dao.dart';

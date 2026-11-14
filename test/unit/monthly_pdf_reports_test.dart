@@ -15,9 +15,28 @@ void main() {
     late List<Budget> budgets;
 
     setUp(() {
+      final now = DateTime(2026, 3, 1);
       accounts = [
-        Account(id: 1, name: 'Salary Account', type: 'Bank', balance: 50000.0, balanceMinor: 5000000),
-        Account(id: 2, name: 'Cash', type: 'Cash', balance: 4000.0, balanceMinor: 400000),
+        Account(
+          id: 1,
+          name: 'Salary Account',
+          type: 'Bank',
+          balance: 50000.0,
+          icon: 'account_balance',
+          color: '4CAF50',
+          isShared: false,
+          createdAt: now,
+        ),
+        Account(
+          id: 2,
+          name: 'Cash',
+          type: 'Cash',
+          balance: 4000.0,
+          icon: 'payments',
+          color: '2196F3',
+          isShared: false,
+          createdAt: now,
+        ),
       ];
 
       categories = [
@@ -28,8 +47,8 @@ void main() {
       ];
 
       budgets = [
-        Budget(id: 1, categoryId: 2, limitAmount: 500.0, limitAmountMinor: 50000, month: '2026-03'),
-        Budget(id: 2, categoryId: 3, limitAmount: 1500.0, limitAmountMinor: 150000, month: '2026-03'),
+        const Budget(id: 1, categoryId: 2, limitAmount: 500.0, month: '2026-03'),
+        const Budget(id: 2, categoryId: 3, limitAmount: 1500.0, month: '2026-03'),
       ];
 
       transactions = [
@@ -40,9 +59,10 @@ void main() {
           categoryId: 1,
           title: 'Monthly Salary',
           amount: 5000.0,
-          amountMinor: 500000,
           type: 'income',
           date: DateTime(2026, 3, 1, 9, 0),
+          isPrivate: false,
+          createdAt: now,
           isBudgetIncluded: true,
         ),
         // Budget-eligible expense 1
@@ -52,9 +72,10 @@ void main() {
           categoryId: 2,
           title: 'Supermarket Groceries',
           amount: 350.0,
-          amountMinor: 35000,
           type: 'expense',
           date: DateTime(2026, 3, 5, 14, 0),
+          isPrivate: false,
+          createdAt: now,
           isBudgetIncluded: true,
         ),
         // Budget-eligible expense 2
@@ -64,9 +85,10 @@ void main() {
           categoryId: 3,
           title: 'Apartment Rent',
           amount: 1500.0,
-          amountMinor: 150000,
           type: 'expense',
           date: DateTime(2026, 3, 2, 10, 0),
+          isPrivate: false,
+          createdAt: now,
           isBudgetIncluded: true,
         ),
         // Excluded reimbursable expense
@@ -76,9 +98,10 @@ void main() {
           categoryId: 4,
           title: 'Company Dinner (Reimbursable)',
           amount: 200.0,
-          amountMinor: 20000,
           type: 'expense',
           date: DateTime(2026, 3, 10, 20, 0),
+          isPrivate: false,
+          createdAt: now,
           isBudgetIncluded: false, // NOT budget included
         ),
       ];

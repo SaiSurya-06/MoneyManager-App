@@ -286,6 +286,7 @@ class _AccountFormState extends ConsumerState<AccountForm> {
               AccountCard(
                 account: previewAccount,
                 currency: currency,
+                onTap: () {},
               ),
               const SizedBox(height: 20),
 

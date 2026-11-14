@@ -1,7 +1,8 @@
+import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:intl/intl.dart';
-import 'package:open_filex/open_filex.dart';
+import 'package:printing/printing.dart';
 import '../../core/services/monthly_pdf_report_service.dart';
 import '../../widgets/common/glassmorphism_card.dart';
 
@@ -256,10 +257,16 @@ class _MonthlyReportsPageState extends ConsumerState<MonthlyReportsPage> {
                 TextButton(
                   onPressed: () async {
                     try {
-                      final result = await OpenFilex.open(report.filePath);
-                      if (result.type != ResultType.done && mounted) {
+                      final file = File(report.filePath);
+                      if (await file.exists()) {
+                        final bytes = await file.readAsBytes();
+                        await Printing.layoutPdf(
+                          name: report.filePath.split(Platform.pathSeparator).last,
+                          onLayout: (format) async => bytes,
+                        );
+                      } else if (mounted) {
                         ScaffoldMessenger.of(context).showSnackBar(
-                          SnackBar(content: Text('Could not open file: ${result.message}')),
+                          const SnackBar(content: Text('Report file not found on disk')),
                         );
                       }
                     } catch (e) {

@@ -45,9 +45,10 @@ void main() {
           categoryId: 10,
           title: 'Lunch',
           amount: 60.0,
-          amountMinor: 6000,
           type: 'expense',
           date: DateTime(2026, 4, 1, 12, 0),
+          isPrivate: false,
+          createdAt: DateTime(2026, 4, 1),
           isBudgetIncluded: true,
         ),
       ];
@@ -88,9 +89,10 @@ void main() {
           categoryId: 10,
           title: 'Grocery bulk',
           amount: 150.0,
-          amountMinor: 15000,
           type: 'expense',
           date: DateTime(2026, 4, 1, 14, 0),
+          isPrivate: false,
+          createdAt: DateTime(2026, 4, 1),
           isBudgetIncluded: true,
         ),
         Transaction(
@@ -99,9 +101,10 @@ void main() {
           categoryId: 10,
           title: 'Coffee',
           amount: 20.0,
-          amountMinor: 2000,
           type: 'expense',
           date: DateTime(2026, 4, 2, 9, 0),
+          isPrivate: false,
+          createdAt: DateTime(2026, 4, 2),
           isBudgetIncluded: true,
         ),
       ];
@@ -135,9 +138,10 @@ void main() {
           categoryId: 10,
           title: 'Client Dinner (Reimbursable)',
           amount: 100.0,
-          amountMinor: 10000,
           type: 'expense',
           date: DateTime(2026, 4, 1, 19, 0),
+          isPrivate: false,
+          createdAt: DateTime(2026, 4, 1),
           isBudgetIncluded: false, // EXCLUDED
         ),
         Transaction(
@@ -146,9 +150,10 @@ void main() {
           categoryId: 10,
           title: 'Personal Snack',
           amount: 15.0,
-          amountMinor: 1500,
           type: 'expense',
           date: DateTime(2026, 4, 1, 20, 0),
+          isPrivate: false,
+          createdAt: DateTime(2026, 4, 1),
           isBudgetIncluded: true, // INCLUDED
         ),
       ];
@@ -193,9 +198,10 @@ void main() {
           categoryId: 1, // Food
           title: 'Groceries',
           amount: 50.0,
-          amountMinor: 5000,
           type: 'expense',
           date: DateTime(2026, 4, 1),
+          isPrivate: false,
+          createdAt: DateTime(2026, 4, 1),
           isBudgetIncluded: true,
         ),
         Transaction(
@@ -204,9 +210,10 @@ void main() {
           categoryId: 2, // Entertainment
           title: 'Movie',
           amount: 30.0,
-          amountMinor: 3000,
           type: 'expense',
           date: DateTime(2026, 4, 1),
+          isPrivate: false,
+          createdAt: DateTime(2026, 4, 1),
           isBudgetIncluded: true,
         ),
       ];

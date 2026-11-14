@@ -10,6 +10,7 @@ import '../../providers/transaction_templates_provider.dart';
 import '../../models/category.dart';
 import '../../models/transaction.dart';
 import '../../models/account.dart';
+import '../../models/transaction_template.dart';
 import 'transaction_list_item.dart';
 import 'transaction_form.dart';
 import 'bulk_transaction_screen.dart';

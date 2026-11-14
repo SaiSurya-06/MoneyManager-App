@@ -5,12 +5,13 @@ import 'package:money_manager/models/transaction_template.dart';
 
 void main() {
   group('Quick-Add Templates with Account Name (F04)', () {
+    final now = DateTime(2026, 1, 1);
+
     test('TransactionTemplate holds valid accountId and categoryId', () {
       final tmpl = TransactionTemplate(
         id: 1,
         title: 'Morning Metro',
         amount: 50.0,
-        amountMinor: 5000,
         type: 'expense',
         categoryId: 5,
         accountId: 2,
@@ -37,8 +38,28 @@ void main() {
 
     test('Resolves active account name successfully', () {
       final accounts = [
-        Account(id: 1, name: 'HDFC Bank', type: 'Bank', balance: 5000.0, isArchived: false),
-        Account(id: 2, name: 'Paytm Wallet', type: 'Wallet', balance: 1200.0, isArchived: false),
+        Account(
+          id: 1,
+          name: 'HDFC Bank',
+          type: 'Bank',
+          balance: 5000.0,
+          icon: 'account_balance',
+          color: '4CAF50',
+          isShared: false,
+          createdAt: now,
+          isArchived: false,
+        ),
+        Account(
+          id: 2,
+          name: 'Paytm Wallet',
+          type: 'Wallet',
+          balance: 1200.0,
+          icon: 'payments',
+          color: '2196F3',
+          isShared: false,
+          createdAt: now,
+          isArchived: false,
+        ),
       ];
 
       final tmpl = TransactionTemplate(
@@ -60,8 +81,28 @@ void main() {
 
     test('Detects archived account and flags as unavailable', () {
       final accounts = [
-        Account(id: 1, name: 'Active Bank', type: 'Bank', balance: 1000.0, isArchived: false),
-        Account(id: 2, name: 'Old Closed Card', type: 'Credit Card', balance: 0.0, isArchived: true),
+        Account(
+          id: 1,
+          name: 'Active Bank',
+          type: 'Bank',
+          balance: 1000.0,
+          icon: 'account_balance',
+          color: '4CAF50',
+          isShared: false,
+          createdAt: now,
+          isArchived: false,
+        ),
+        Account(
+          id: 2,
+          name: 'Old Closed Card',
+          type: 'Credit Card',
+          balance: 0.0,
+          icon: 'credit_card',
+          color: 'F44336',
+          isShared: false,
+          createdAt: now,
+          isArchived: true,
+        ),
       ];
 
       final tmpl = TransactionTemplate(
@@ -86,7 +127,17 @@ void main() {
 
     test('Detects missing account when account has been deleted', () {
       final accounts = [
-        Account(id: 1, name: 'Main Account', type: 'Bank', balance: 2000.0, isArchived: false),
+        Account(
+          id: 1,
+          name: 'Main Account',
+          type: 'Bank',
+          balance: 2000.0,
+          icon: 'account_balance',
+          color: '4CAF50',
+          isShared: false,
+          createdAt: now,
+          isArchived: false,
+        ),
       ];
 
       final tmpl = TransactionTemplate(

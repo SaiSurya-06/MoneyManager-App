@@ -12,6 +12,8 @@ void main() {
         amount: 50.0,
         type: 'expense',
         date: DateTime.now(),
+        isPrivate: false,
+        createdAt: DateTime.now(),
       );
 
       expect(tx.isBudgetIncluded, isTrue);
@@ -26,9 +28,10 @@ void main() {
         categoryId: 2,
         title: 'Business lunch (Reimbursable)',
         amount: 120.0,
-        amountMinor: 12000,
         type: 'expense',
         date: DateTime.now(),
+        isPrivate: false,
+        createdAt: DateTime.now(),
         isBudgetIncluded: false,
       );
 
@@ -42,6 +45,7 @@ void main() {
     });
 
     test('Budget filtering isolates only budget-included transactions', () {
+      final now = DateTime(2026, 4, 1);
       final txList = [
         Transaction(
           id: 1,
@@ -49,9 +53,10 @@ void main() {
           categoryId: 10,
           title: 'Groceries',
           amount: 80.0,
-          amountMinor: 8000,
           type: 'expense',
           date: DateTime(2026, 4, 1),
+          isPrivate: false,
+          createdAt: now,
           isBudgetIncluded: true,
         ),
         Transaction(
@@ -60,9 +65,10 @@ void main() {
           categoryId: 10,
           title: 'Client Dinner (Reimbursable by Employer)',
           amount: 250.0,
-          amountMinor: 25000,
           type: 'expense',
           date: DateTime(2026, 4, 2),
+          isPrivate: false,
+          createdAt: now,
           isBudgetIncluded: false, // Excluded from budget
         ),
         Transaction(
@@ -71,9 +77,10 @@ void main() {
           categoryId: 10,
           title: 'Household supplies',
           amount: 40.0,
-          amountMinor: 4000,
           type: 'expense',
           date: DateTime(2026, 4, 3),
+          isPrivate: false,
+          createdAt: now,
           isBudgetIncluded: true,
         ),
       ];

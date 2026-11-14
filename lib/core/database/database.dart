@@ -649,10 +649,6 @@ class AppDatabase {
         account_id INTEGER NOT NULL
       )
     ''');
-        category_id INTEGER NOT NULL,
-        account_id INTEGER NOT NULL
-      )
-    ''');
 
     // 11. health_score_history Table
     await db.execute('''
