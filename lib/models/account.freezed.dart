@@ -32,6 +32,16 @@ mixin _$Account {
   DateTime get createdAt => throw _privateConstructorUsedError;
   @JsonKey(name: 'limit_amount')
   double? get limitAmount => throw _privateConstructorUsedError;
+  @JsonKey(name: 'is_archived')
+  bool get isArchived => throw _privateConstructorUsedError;
+  @JsonKey(name: 'archived_at')
+  DateTime? get archivedAt => throw _privateConstructorUsedError;
+  @JsonKey(name: 'billing_cycle_start_day')
+  int? get billingCycleStartDay => throw _privateConstructorUsedError;
+  @JsonKey(name: 'statement_due_day')
+  int? get statementDueDay => throw _privateConstructorUsedError;
+  @JsonKey(name: 'minimum_due')
+  double? get minimumDue => throw _privateConstructorUsedError;
 
   /// Serializes this Account to a JSON map.
   Map<String, dynamic> toJson() => throw _privateConstructorUsedError;
@@ -56,7 +66,12 @@ abstract class $AccountCopyWith<$Res> {
       String color,
       @JsonKey(name: 'is_shared') bool isShared,
       @JsonKey(name: 'created_at') DateTime createdAt,
-      @JsonKey(name: 'limit_amount') double? limitAmount});
+      @JsonKey(name: 'limit_amount') double? limitAmount,
+      @JsonKey(name: 'is_archived') bool isArchived,
+      @JsonKey(name: 'archived_at') DateTime? archivedAt,
+      @JsonKey(name: 'billing_cycle_start_day') int? billingCycleStartDay,
+      @JsonKey(name: 'statement_due_day') int? statementDueDay,
+      @JsonKey(name: 'minimum_due') double? minimumDue});
 }
 
 /// @nodoc
@@ -83,6 +98,11 @@ class _$AccountCopyWithImpl<$Res, $Val extends Account>
     Object? isShared = null,
     Object? createdAt = null,
     Object? limitAmount = freezed,
+    Object? isArchived = null,
+    Object? archivedAt = freezed,
+    Object? billingCycleStartDay = freezed,
+    Object? statementDueDay = freezed,
+    Object? minimumDue = freezed,
   }) {
     return _then(_value.copyWith(
       id: freezed == id
@@ -121,6 +141,26 @@ class _$AccountCopyWithImpl<$Res, $Val extends Account>
           ? _value.limitAmount
           : limitAmount // ignore: cast_nullable_to_non_nullable
               as double?,
+      isArchived: null == isArchived
+          ? _value.isArchived
+          : isArchived // ignore: cast_nullable_to_non_nullable
+              as bool,
+      archivedAt: freezed == archivedAt
+          ? _value.archivedAt
+          : archivedAt // ignore: cast_nullable_to_non_nullable
+              as DateTime?,
+      billingCycleStartDay: freezed == billingCycleStartDay
+          ? _value.billingCycleStartDay
+          : billingCycleStartDay // ignore: cast_nullable_to_non_nullable
+              as int?,
+      statementDueDay: freezed == statementDueDay
+          ? _value.statementDueDay
+          : statementDueDay // ignore: cast_nullable_to_non_nullable
+              as int?,
+      minimumDue: freezed == minimumDue
+          ? _value.minimumDue
+          : minimumDue // ignore: cast_nullable_to_non_nullable
+              as double?,
     ) as $Val);
   }
 }
@@ -141,7 +181,12 @@ abstract class _$$AccountImplCopyWith<$Res> implements $AccountCopyWith<$Res> {
       String color,
       @JsonKey(name: 'is_shared') bool isShared,
       @JsonKey(name: 'created_at') DateTime createdAt,
-      @JsonKey(name: 'limit_amount') double? limitAmount});
+      @JsonKey(name: 'limit_amount') double? limitAmount,
+      @JsonKey(name: 'is_archived') bool isArchived,
+      @JsonKey(name: 'archived_at') DateTime? archivedAt,
+      @JsonKey(name: 'billing_cycle_start_day') int? billingCycleStartDay,
+      @JsonKey(name: 'statement_due_day') int? statementDueDay,
+      @JsonKey(name: 'minimum_due') double? minimumDue});
 }
 
 /// @nodoc
@@ -166,6 +211,11 @@ class __$$AccountImplCopyWithImpl<$Res>
     Object? isShared = null,
     Object? createdAt = null,
     Object? limitAmount = freezed,
+    Object? isArchived = null,
+    Object? archivedAt = freezed,
+    Object? billingCycleStartDay = freezed,
+    Object? statementDueDay = freezed,
+    Object? minimumDue = freezed,
   }) {
     return _then(_$AccountImpl(
       id: freezed == id
@@ -204,6 +254,26 @@ class __$$AccountImplCopyWithImpl<$Res>
           ? _value.limitAmount
           : limitAmount // ignore: cast_nullable_to_non_nullable
               as double?,
+      isArchived: null == isArchived
+          ? _value.isArchived
+          : isArchived // ignore: cast_nullable_to_non_nullable
+              as bool,
+      archivedAt: freezed == archivedAt
+          ? _value.archivedAt
+          : archivedAt // ignore: cast_nullable_to_non_nullable
+              as DateTime?,
+      billingCycleStartDay: freezed == billingCycleStartDay
+          ? _value.billingCycleStartDay
+          : billingCycleStartDay // ignore: cast_nullable_to_non_nullable
+              as int?,
+      statementDueDay: freezed == statementDueDay
+          ? _value.statementDueDay
+          : statementDueDay // ignore: cast_nullable_to_non_nullable
+              as int?,
+      minimumDue: freezed == minimumDue
+          ? _value.minimumDue
+          : minimumDue // ignore: cast_nullable_to_non_nullable
+              as double?,
     ));
   }
 }
@@ -220,7 +290,12 @@ class _$AccountImpl extends _Account {
       required this.color,
       @JsonKey(name: 'is_shared') required this.isShared,
       @JsonKey(name: 'created_at') required this.createdAt,
-      @JsonKey(name: 'limit_amount') this.limitAmount})
+      @JsonKey(name: 'limit_amount') this.limitAmount,
+      @JsonKey(name: 'is_archived') this.isArchived = false,
+      @JsonKey(name: 'archived_at') this.archivedAt,
+      @JsonKey(name: 'billing_cycle_start_day') this.billingCycleStartDay,
+      @JsonKey(name: 'statement_due_day') this.statementDueDay,
+      @JsonKey(name: 'minimum_due') this.minimumDue})
       : super._();
 
   factory _$AccountImpl.fromJson(Map<String, dynamic> json) =>
@@ -247,10 +322,25 @@ class _$AccountImpl extends _Account {
   @override
   @JsonKey(name: 'limit_amount')
   final double? limitAmount;
+  @override
+  @JsonKey(name: 'is_archived')
+  final bool isArchived;
+  @override
+  @JsonKey(name: 'archived_at')
+  final DateTime? archivedAt;
+  @override
+  @JsonKey(name: 'billing_cycle_start_day')
+  final int? billingCycleStartDay;
+  @override
+  @JsonKey(name: 'statement_due_day')
+  final int? statementDueDay;
+  @override
+  @JsonKey(name: 'minimum_due')
+  final double? minimumDue;
 
   @override
   String toString() {
-    return 'Account(id: $id, name: $name, type: $type, balance: $balance, icon: $icon, color: $color, isShared: $isShared, createdAt: $createdAt, limitAmount: $limitAmount)';
+    return 'Account(id: $id, name: $name, type: $type, balance: $balance, icon: $icon, color: $color, isShared: $isShared, createdAt: $createdAt, limitAmount: $limitAmount, isArchived: $isArchived, archivedAt: $archivedAt, billingCycleStartDay: $billingCycleStartDay, statementDueDay: $statementDueDay, minimumDue: $minimumDue)';
   }
 
   @override
@@ -269,13 +359,37 @@ class _$AccountImpl extends _Account {
             (identical(other.createdAt, createdAt) ||
                 other.createdAt == createdAt) &&
             (identical(other.limitAmount, limitAmount) ||
-                other.limitAmount == limitAmount));
+                other.limitAmount == limitAmount) &&
+            (identical(other.isArchived, isArchived) ||
+                other.isArchived == isArchived) &&
+            (identical(other.archivedAt, archivedAt) ||
+                other.archivedAt == archivedAt) &&
+            (identical(other.billingCycleStartDay, billingCycleStartDay) ||
+                other.billingCycleStartDay == billingCycleStartDay) &&
+            (identical(other.statementDueDay, statementDueDay) ||
+                other.statementDueDay == statementDueDay) &&
+            (identical(other.minimumDue, minimumDue) ||
+                other.minimumDue == minimumDue));
   }
 
   @JsonKey(includeFromJson: false, includeToJson: false)
   @override
-  int get hashCode => Object.hash(runtimeType, id, name, type, balance, icon,
-      color, isShared, createdAt, limitAmount);
+  int get hashCode => Object.hash(
+      runtimeType,
+      id,
+      name,
+      type,
+      balance,
+      icon,
+      color,
+      isShared,
+      createdAt,
+      limitAmount,
+      isArchived,
+      archivedAt,
+      billingCycleStartDay,
+      statementDueDay,
+      minimumDue);
 
   /// Create a copy of Account
   /// with the given fields replaced by the non-null parameter values.
@@ -303,11 +417,18 @@ abstract class _Account extends Account {
           required final String color,
           @JsonKey(name: 'is_shared') required final bool isShared,
           @JsonKey(name: 'created_at') required final DateTime createdAt,
-          @JsonKey(name: 'limit_amount') final double? limitAmount}) =
+          @JsonKey(name: 'limit_amount') final double? limitAmount,
+          @JsonKey(name: 'is_archived') final bool isArchived,
+          @JsonKey(name: 'archived_at') final DateTime? archivedAt,
+          @JsonKey(name: 'billing_cycle_start_day')
+          final int? billingCycleStartDay,
+          @JsonKey(name: 'statement_due_day') final int? statementDueDay,
+          @JsonKey(name: 'minimum_due') final double? minimumDue}) =
       _$AccountImpl;
   const _Account._() : super._();
 
-  factory _Account.fromJson(Map<String, dynamic> json) = _$AccountImpl.fromJson;
+  factory _Account.fromJson(Map<String, dynamic> json) =
+      _$AccountImpl.fromJson;
 
   @override
   int? get id;
@@ -330,6 +451,21 @@ abstract class _Account extends Account {
   @override
   @JsonKey(name: 'limit_amount')
   double? get limitAmount;
+  @override
+  @JsonKey(name: 'is_archived')
+  bool get isArchived;
+  @override
+  @JsonKey(name: 'archived_at')
+  DateTime? get archivedAt;
+  @override
+  @JsonKey(name: 'billing_cycle_start_day')
+  int? get billingCycleStartDay;
+  @override
+  @JsonKey(name: 'statement_due_day')
+  int? get statementDueDay;
+  @override
+  @JsonKey(name: 'minimum_due')
+  double? get minimumDue;
 
   /// Create a copy of Account
   /// with the given fields replaced by the non-null parameter values.

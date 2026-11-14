@@ -45,9 +45,6 @@ jobs:
       - name: 📦 Install dependencies
         run: flutter pub get
 
-      - name: 🔨 Generate code
-        run: dart run build_runner build --delete-conflicting-outputs
-
       - name: 🔍 Analyze
         run: flutter analyze --fatal-infos
 
@@ -100,9 +97,6 @@ jobs:
 
       - name: 📦 Install dependencies
         run: flutter pub get
-
-      - name: 🔨 Generate code
-        run: dart run build_runner build --delete-conflicting-outputs
 
       # ── Derive version & auto-increment versionCode ──────────────
       - name: 🏷️ Derive version

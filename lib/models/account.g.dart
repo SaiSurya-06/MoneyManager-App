@@ -17,6 +17,14 @@ _$AccountImpl _$$AccountImplFromJson(Map<String, dynamic> json) =>
       isShared: json['is_shared'] as bool,
       createdAt: DateTime.parse(json['created_at'] as String),
       limitAmount: (json['limit_amount'] as num?)?.toDouble(),
+      isArchived: json['is_archived'] as bool? ?? false,
+      archivedAt: json['archived_at'] == null
+          ? null
+          : DateTime.parse(json['archived_at'] as String),
+      billingCycleStartDay:
+          (json['billing_cycle_start_day'] as num?)?.toInt(),
+      statementDueDay: (json['statement_due_day'] as num?)?.toInt(),
+      minimumDue: (json['minimum_due'] as num?)?.toDouble(),
     );
 
 Map<String, dynamic> _$$AccountImplToJson(_$AccountImpl instance) =>
@@ -30,4 +38,9 @@ Map<String, dynamic> _$$AccountImplToJson(_$AccountImpl instance) =>
       'is_shared': instance.isShared,
       'created_at': instance.createdAt.toIso8601String(),
       'limit_amount': instance.limitAmount,
+      'is_archived': instance.isArchived,
+      'archived_at': instance.archivedAt?.toIso8601String(),
+      'billing_cycle_start_day': instance.billingCycleStartDay,
+      'statement_due_day': instance.statementDueDay,
+      'minimum_due': instance.minimumDue,
     };

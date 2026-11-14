@@ -44,6 +44,8 @@ mixin _$Transaction {
   DateTime get createdAt => throw _privateConstructorUsedError;
   @JsonKey(name: 'subcategory_id')
   int? get subcategoryId => throw _privateConstructorUsedError;
+  @JsonKey(name: 'is_budget_included')
+  bool get isBudgetIncluded => throw _privateConstructorUsedError;
 
   /// Serializes this Transaction to a JSON map.
   Map<String, dynamic> toJson() => throw _privateConstructorUsedError;
@@ -77,7 +79,8 @@ abstract class $TransactionCopyWith<$Res> {
       @JsonKey(name: 'parent_id') int? parentId,
       @JsonKey(name: 'transfer_to_account_id') int? transferToAccountId,
       @JsonKey(name: 'created_at') DateTime createdAt,
-      @JsonKey(name: 'subcategory_id') int? subcategoryId});
+      @JsonKey(name: 'subcategory_id') int? subcategoryId,
+      @JsonKey(name: 'is_budget_included') bool isBudgetIncluded});
 }
 
 /// @nodoc
@@ -111,6 +114,7 @@ class _$TransactionCopyWithImpl<$Res, $Val extends Transaction>
     Object? transferToAccountId = freezed,
     Object? createdAt = null,
     Object? subcategoryId = freezed,
+    Object? isBudgetIncluded = null,
   }) {
     return _then(_value.copyWith(
       id: freezed == id
@@ -177,6 +181,10 @@ class _$TransactionCopyWithImpl<$Res, $Val extends Transaction>
           ? _value.subcategoryId
           : subcategoryId // ignore: cast_nullable_to_non_nullable
               as int?,
+      isBudgetIncluded: null == isBudgetIncluded
+          ? _value.isBudgetIncluded
+          : isBudgetIncluded // ignore: cast_nullable_to_non_nullable
+              as bool,
     ) as $Val);
   }
 }
@@ -205,7 +213,8 @@ abstract class _$$TransactionImplCopyWith<$Res>
       @JsonKey(name: 'parent_id') int? parentId,
       @JsonKey(name: 'transfer_to_account_id') int? transferToAccountId,
       @JsonKey(name: 'created_at') DateTime createdAt,
-      @JsonKey(name: 'subcategory_id') int? subcategoryId});
+      @JsonKey(name: 'subcategory_id') int? subcategoryId,
+      @JsonKey(name: 'is_budget_included') bool isBudgetIncluded});
 }
 
 /// @nodoc
@@ -237,6 +246,7 @@ class __$$TransactionImplCopyWithImpl<$Res>
     Object? transferToAccountId = freezed,
     Object? createdAt = null,
     Object? subcategoryId = freezed,
+    Object? isBudgetIncluded = null,
   }) {
     return _then(_$TransactionImpl(
       id: freezed == id
@@ -303,6 +313,10 @@ class __$$TransactionImplCopyWithImpl<$Res>
           ? _value.subcategoryId
           : subcategoryId // ignore: cast_nullable_to_non_nullable
               as int?,
+      isBudgetIncluded: null == isBudgetIncluded
+          ? _value.isBudgetIncluded
+          : isBudgetIncluded // ignore: cast_nullable_to_non_nullable
+              as bool,
     ));
   }
 }
@@ -326,7 +340,8 @@ class _$TransactionImpl extends _Transaction {
       @JsonKey(name: 'parent_id') this.parentId,
       @JsonKey(name: 'transfer_to_account_id') this.transferToAccountId,
       @JsonKey(name: 'created_at') required this.createdAt,
-      @JsonKey(name: 'subcategory_id') this.subcategoryId})
+      @JsonKey(name: 'subcategory_id') this.subcategoryId,
+      @JsonKey(name: 'is_budget_included') this.isBudgetIncluded = true})
       : super._();
 
   factory _$TransactionImpl.fromJson(Map<String, dynamic> json) =>
@@ -374,10 +389,13 @@ class _$TransactionImpl extends _Transaction {
   @override
   @JsonKey(name: 'subcategory_id')
   final int? subcategoryId;
+  @override
+  @JsonKey(name: 'is_budget_included')
+  final bool isBudgetIncluded;
 
   @override
   String toString() {
-    return 'Transaction(id: $id, accountId: $accountId, categoryId: $categoryId, title: $title, amount: $amount, type: $type, date: $date, note: $note, recurrence: $recurrence, recurrenceEndDate: $recurrenceEndDate, isPrivate: $isPrivate, tags: $tags, parentId: $parentId, transferToAccountId: $transferToAccountId, createdAt: $createdAt, subcategoryId: $subcategoryId)';
+    return 'Transaction(id: $id, accountId: $accountId, categoryId: $categoryId, title: $title, amount: $amount, type: $type, date: $date, note: $note, recurrence: $recurrence, recurrenceEndDate: $recurrenceEndDate, isPrivate: $isPrivate, tags: $tags, parentId: $parentId, transferToAccountId: $transferToAccountId, createdAt: $createdAt, subcategoryId: $subcategoryId, isBudgetIncluded: $isBudgetIncluded)';
   }
 
   @override
@@ -409,7 +427,9 @@ class _$TransactionImpl extends _Transaction {
             (identical(other.createdAt, createdAt) ||
                 other.createdAt == createdAt) &&
             (identical(other.subcategoryId, subcategoryId) ||
-                other.subcategoryId == subcategoryId));
+                other.subcategoryId == subcategoryId) &&
+            (identical(other.isBudgetIncluded, isBudgetIncluded) ||
+                other.isBudgetIncluded == isBudgetIncluded));
   }
 
   @JsonKey(includeFromJson: false, includeToJson: false)
@@ -431,7 +451,8 @@ class _$TransactionImpl extends _Transaction {
       parentId,
       transferToAccountId,
       createdAt,
-      subcategoryId);
+      subcategoryId,
+      isBudgetIncluded);
 
   /// Create a copy of Transaction
   /// with the given fields replaced by the non-null parameter values.
@@ -466,8 +487,9 @@ abstract class _Transaction extends Transaction {
       @JsonKey(name: 'parent_id') final int? parentId,
       @JsonKey(name: 'transfer_to_account_id') final int? transferToAccountId,
       @JsonKey(name: 'created_at') required final DateTime createdAt,
-      @JsonKey(name: 'subcategory_id')
-      final int? subcategoryId}) = _$TransactionImpl;
+      @JsonKey(name: 'subcategory_id') final int? subcategoryId,
+      @JsonKey(name: 'is_budget_included')
+      final bool isBudgetIncluded}) = _$TransactionImpl;
   const _Transaction._() : super._();
 
   factory _Transaction.fromJson(Map<String, dynamic> json) =
@@ -513,6 +535,9 @@ abstract class _Transaction extends Transaction {
   @override
   @JsonKey(name: 'subcategory_id')
   int? get subcategoryId;
+  @override
+  @JsonKey(name: 'is_budget_included')
+  bool get isBudgetIncluded;
 
   /// Create a copy of Transaction
   /// with the given fields replaced by the non-null parameter values.
