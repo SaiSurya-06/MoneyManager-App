@@ -43,6 +43,8 @@ class Account with _$Account {
     map['is_archived'] = isArchived ? 1 : 0;
     map['archived_at'] = archivedAt?.toIso8601String();
     map['balance_minor'] = balanceMinorUnits;
+    map['initial_balance_minor'] = balanceMinorUnits;
+    map['initial_balance'] = balance;
     if (limitAmount != null) {
       map['limit_amount_minor'] = limitAmountMinorUnits;
     }

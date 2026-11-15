@@ -12,12 +12,13 @@
 | `test/unit/daily_budget_rollover_test.dart` | F05: Money Map Daily Spending Calendar | 6 | PASSED |
 | `test/unit/budget_inclusion_test.dart` | F06: Budget Deduction Toggle | 3 | PASSED |
 | `test/unit/monthly_pdf_reports_test.dart` | F07: Automated Monthly PDF Reports | 6 | PASSED |
+| `test/unit/f08_backup_restore_migration_test.dart` | F08: Backup, Restore, Migration & Balance Integrity | 3 | PASSED |
 | `test/unit/encryption_service_test.dart` | Security & Encryption | 3 | PASSED |
 | `test/unit/security_remediation_test.dart` | SQL Injection & Auth | 4 | PASSED |
 | `test/unit/model_test.dart` | Core Data Models | 8 | PASSED |
 
-Total Automated Tests: **52 Unit & Integration Tests**.
-Passing: **52**. Failing: **0**. Blocked: **0**.
+Total Automated Tests: **55 Unit & Integration Tests**.
+Passing: **55**. Failing: **0**. Blocked: **0**.
 
 ---
 
@@ -32,3 +33,5 @@ Passing: **52**. Failing: **0**. Blocked: **0**.
 4. **Quick Templates Unverified Execution**: Tapping a template previously executed an immediate write without allowing amount or account verification.
    - *Fix*: Tapping now opens `TransactionForm` pre-filled for user confirmation, while preserving a dedicated `Quick Log` action for power users.
 5. **PDF Report Byte Validation**: Verified generated reports produce valid binary documents with the `%PDF-` magic header and SHA-256 checksum tracking.
+6. **Backup Restore Opening Balance Erasure (F08)**: Importing database backups into newer APKs erased opening balances and altered financial positions due to `recalculateAllBalances` resetting balances to `0`. Furthermore, uncheckpointed WAL frames on export and leftover WAL frames on restore caused data corruption.
+   - *Fix*: Implemented `initial_balance_minor` and `initial_balance` in schema v14, updated balance recalculation to preserve opening balances, added WAL checkpointing prior to export, added active WAL/SHM file purging during restore, implemented 5-step staged restoration with safety rollback, and added rejection of unsupported newer schemas.

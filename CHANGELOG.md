@@ -57,6 +57,22 @@ The project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html
 - **Added**: Notification alert (`showMonthlyReportAlert`) upon report generation.
 - **Added**: `MonthlyReportsPage` (`lib/pages/more/monthly_reports_page.dart`) in More navigation for viewing, sharing, and manual historical regeneration.
 
+### CRITICAL: Backup, Restore, Database Migration & Financial Balance Integrity (F08)
+- **Resolved**: Critical defect where importing database backups on newer APKs erased opening balances and altered financial positions.
+- **Added**: Full mathematical balance reconciliation in `AppDatabase.recalculateAllBalances` and `_migrateToV14`:
+  $$\text{balance\_minor} == \text{initial\_balance\_minor} + \text{net\_transactions\_minor}$$
+  Ensures opening balances and un-transacted initial balances are never reset to ₹0.
+- **Added**: Database Schema v14 introducing `initial_balance` (REAL) and `initial_balance_minor` (INTEGER) to `account` table, `backup_metadata` table, and `balance_audit_log` table.
+- **Added**: 5-step staged restoration pipeline in `BackupService` (`lib/core/backup/backup_service.dart`):
+  1. Pre-validation: SQLite header check, `PRAGMA quick_check`, schema version verification (rejecting unsupported newer versions `> 14`), and core tables check.
+  2. Active safety backup: Checkpoints active database (`PRAGMA wal_checkpoint(TRUNCATE)`) and preserves `money_manager_pre_restore_safety_backup.db` with rollback capability.
+  3. Staged isolated restoration: Restores candidate backup in `temp_restore_stage.db`, applies migrations, reconciles balances, and audits integrity.
+  4. Atomic replacement: Closes active database, purges active `-wal` and `-shm` residue to prevent stale WAL replay, atomically replaces `money_manager.db`, and reconnects.
+  5. Confirmation: Returns detailed `RestoreResult` and triggers Riverpod provider reloads (`accountsProvider`, `transactionsProvider`, `budgetsProvider`, `authProvider`, etc.).
+- **Added**: Safe WAL checkpointing before local and Google Drive database exports ensuring exported backups capture all uncheckpointed transactions and balances.
+- **Added**: SHA-256 checksum generation and validation on export and restore.
+- **Added**: `BACKUP_RESTORE_MIGRATION_GUIDE.md` detailing operational procedures, reconciliation formulas, and zero-loss guarantees.
+
 ### Quality Assurance & Testing
 - **Added**: Comprehensive test suites in `test/unit/`:
   - `money_precision_test.dart`

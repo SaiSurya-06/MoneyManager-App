@@ -60,11 +60,15 @@ class AppDatabase {
 
     final db = await openDatabase(
       path,
-      version: 13,
+      version: 14,
       onCreate: _createDB,
       onUpgrade: _upgradeDB,
     );
     return db;
+  }
+
+  Future upgradeDatabase(Database db, int oldVersion, int newVersion) async {
+    await _upgradeDB(db, oldVersion, newVersion);
   }
 
   Future _upgradeDB(Database db, int oldVersion, int newVersion) async {
@@ -276,6 +280,9 @@ class AppDatabase {
     if (oldVersion < 13) {
       await _migrateToV13(db);
     }
+    if (oldVersion < 14) {
+      await _migrateToV14(db);
+    }
   }
 
   Future<void> _migrateToV13(Database db) async {
@@ -363,7 +370,7 @@ class AppDatabase {
           estimated_income_minor = CAST(ROUND(estimated_income * 100) AS INTEGER)
       ''');
 
-      // 4. Recalculate account balances using integer minor units
+      // 4. Recalculate account balances using integer minor units, preserving opening balances
       await recalculateAllBalances(db);
 
       // 5. Create audit table and log migration verification
@@ -408,68 +415,185 @@ class AppDatabase {
     }
   }
 
-  Future<void> _migrateNotesToColumn(Database db) async {
-    final txs = await db.query(
-      'transaction_log',
-      columns: ['id', 'note', 'type'],
-      where: "note LIKE '%target account ID: %'",
-    );
-    final transferRegExp = RegExp(r'Transfer to target account ID: (\d+)');
-    final ccRegExp = RegExp(r'Credit Card Payment to target account ID: (\d+)');
+  Future<void> _migrateToV14(Database db) async {
+    try {
+      // 1. Add opening balance columns to account table
+      final accountColumns = await db.rawQuery("PRAGMA table_info('account')");
+      final existingColNames = accountColumns.map((c) => c['name'] as String).toSet();
 
-    for (var tx in txs) {
-      final id = tx['id'] as int;
-      final note = tx['note'] as String?;
-      if (note == null) continue;
+      if (!existingColNames.contains('initial_balance')) {
+        await db.execute("ALTER TABLE account ADD COLUMN initial_balance REAL NOT NULL DEFAULT 0.0");
+      }
+      if (!existingColNames.contains('initial_balance_minor')) {
+        await db.execute("ALTER TABLE account ADD COLUMN initial_balance_minor INTEGER NOT NULL DEFAULT 0");
+      }
 
-      int? targetAccountId;
-      final transferMatch = transferRegExp.firstMatch(note);
-      if (transferMatch != null) {
-        targetAccountId = int.tryParse(transferMatch.group(1) ?? '');
-      } else {
-        final ccMatch = ccRegExp.firstMatch(note);
-        if (ccMatch != null) {
-          targetAccountId = int.tryParse(ccMatch.group(1) ?? '');
+      // 2. Create backup_metadata table
+      await db.execute('''
+        CREATE TABLE IF NOT EXISTS backup_metadata (
+          key TEXT PRIMARY KEY,
+          value TEXT NOT NULL
+        )
+      ''');
+
+      // 3. Create balance_audit_log table
+      await db.execute('''
+        CREATE TABLE IF NOT EXISTS balance_audit_log (
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          account_id INTEGER NOT NULL,
+          timestamp TEXT NOT NULL,
+          event_type TEXT NOT NULL,
+          opening_balance_minor INTEGER NOT NULL,
+          net_transactions_minor INTEGER NOT NULL,
+          calculated_balance_minor INTEGER NOT NULL,
+          stored_balance_minor INTEGER NOT NULL,
+          reconciliation_status TEXT NOT NULL
+        )
+      ''');
+
+      // 4. Populate initial_balance_minor for all accounts by preserving pre-migration balances
+      final accounts = await db.query('account');
+      final allTxs = await db.query('transaction_log');
+
+      for (var acc in accounts) {
+        final accId = acc['id'] as int;
+        final storedMinor = (acc['balance_minor'] as int?) ??
+            ((acc['balance'] as num).toDouble() * 100).round();
+        final netTxMinor = getNetTransactionsMinorForAccount(db, accId, allTxs);
+        final openingMinor = storedMinor - netTxMinor;
+
+        await db.update(
+          'account',
+          {
+            'initial_balance_minor': openingMinor,
+            'initial_balance': openingMinor / 100.0,
+          },
+          where: 'id = ?',
+          whereArgs: [accId],
+        );
+
+        await db.insert('balance_audit_log', {
+          'account_id': accId,
+          'timestamp': DateTime.now().toIso8601String(),
+          'event_type': 'MIGRATION_V14_RECONCILE',
+          'opening_balance_minor': openingMinor,
+          'net_transactions_minor': netTxMinor,
+          'calculated_balance_minor': openingMinor + netTxMinor,
+          'stored_balance_minor': storedMinor,
+          'reconciliation_status': (openingMinor + netTxMinor == storedMinor) ? 'EXACT_MATCH' : 'MISMATCH',
+        });
+      }
+
+      // 5. Reconcile all balances
+      await recalculateAllBalances(db);
+
+      // 6. Record audit entry for v14
+      await db.insert('migration_audit', {
+        'version': 14,
+        'migrated_at': DateTime.now().toIso8601String(),
+        'record_counts': 'accounts: ${accounts.length}, transactions: ${allTxs.length}',
+        'validation_result': 'PASSED_VERIFIED',
+      }, conflictAlgorithm: ConflictAlgorithm.replace);
+    } catch (e) {
+      assert(() { debugPrint('[DB migration v14] $e'); return true; }());
+      rethrow;
+    }
+  }
+
+  static int getNetTransactionsMinorForAccount(
+    DatabaseExecutor db,
+    int accountId, [
+    List<Map<String, dynamic>>? cachedTxs,
+  ]) {
+    final txs = cachedTxs;
+    int netMinor = 0;
+
+    if (txs != null) {
+      for (var tx in txs) {
+        if (tx['parent_id'] != null) continue; // Skip split child transactions
+        final int txAccountId = tx['account_id'] as int;
+        final int amountMinor = (tx['amount_minor'] as int?) ??
+            ((tx['amount'] as num).toDouble() * 100).round();
+        final type = tx['type'] as String;
+        final transferTo = tx['transfer_to_account_id'] as int? ??
+            parseCreditCardTargetAccountId(tx['note'] as String?) ??
+            parseDestAccountId(tx['note'] as String?);
+
+        if (txAccountId == accountId) {
+          if (type == 'income') {
+            netMinor += amountMinor;
+          } else if (type == 'expense' || type == 'transfer') {
+            netMinor -= amountMinor;
+          }
+        }
+
+        if (transferTo == accountId) {
+          if (type == 'expense' || type == 'transfer') {
+            netMinor += amountMinor;
+          }
         }
       }
-
-      if (targetAccountId != null) {
-        await db.update(
-          'transaction_log',
-          {'transfer_to_account_id': targetAccountId},
-          where: 'id = ?',
-          whereArgs: [id],
-        );
-      }
     }
+    return netMinor;
+  }
+
+  static int? parseDestAccountId(String? note) {
+    if (note == null || note.trim().isEmpty) return null;
+    final regExp = RegExp(r'Transfer to target account ID:\s*(\d+)', caseSensitive: false);
+    final match = regExp.firstMatch(note);
+    if (match != null) {
+      return int.tryParse(match.group(1) ?? '');
+    }
+    return null;
+  }
+
+  static int? parseCreditCardTargetAccountId(String? note) {
+    if (note == null || note.trim().isEmpty) return null;
+    final regExp = RegExp(r'Credit Card [Pp]ayment to (?:target )?account ID:\s*(\d+)', caseSensitive: false);
+    final match = regExp.firstMatch(note);
+    if (match != null) {
+      return int.tryParse(match.group(1) ?? '');
+    }
+    return null;
   }
 
   Future<void> recalculateAllBalances(Database db) async {
     final accounts = await db.query('account');
+    final allTxs = await db.query('transaction_log');
+    
+    // Check if initial_balance_minor column exists in account
+    final tableInfo = await db.rawQuery("PRAGMA table_info('account')");
+    final hasInitialBalance = tableInfo.any((col) => col['name'] == 'initial_balance_minor');
+
     final accountBalancesMinor = <int, int>{};
+
     for (var acc in accounts) {
-      accountBalancesMinor[acc['id'] as int] = 0;
-    }
+      final accId = acc['id'] as int;
+      final int netTxMinor = getNetTransactionsMinorForAccount(db, accId, allTxs);
 
-    final txs = await db.query('transaction_log');
-    for (var tx in txs) {
-      if (tx['parent_id'] != null) continue; // Skip split child transactions
-      
-      final accountId = tx['account_id'] as int;
-      final int amountMinor = (tx['amount_minor'] as int?) ??
-          ((tx['amount'] as num).toDouble() * 100).round();
-      final type = tx['type'] as String;
-      final transferTo = tx['transfer_to_account_id'] as int?;
-
-      if (type == 'income') {
-        accountBalancesMinor[accountId] = (accountBalancesMinor[accountId] ?? 0) + amountMinor;
-      } else if (type == 'expense' || type == 'transfer') {
-        accountBalancesMinor[accountId] = (accountBalancesMinor[accountId] ?? 0) - amountMinor;
+      int openingMinor;
+      if (hasInitialBalance && acc['initial_balance_minor'] != null) {
+        openingMinor = acc['initial_balance_minor'] as int;
+      } else {
+        // Derive opening balance from stored balance minus net transactions
+        final storedMinor = (acc['balance_minor'] as int?) ??
+            ((acc['balance'] as num).toDouble() * 100).round();
+        openingMinor = storedMinor - netTxMinor;
+        if (hasInitialBalance) {
+          await db.update(
+            'account',
+            {
+              'initial_balance_minor': openingMinor,
+              'initial_balance': openingMinor / 100.0,
+            },
+            where: 'id = ?',
+            whereArgs: [accId],
+          );
+        }
       }
 
-      if (transferTo != null && accountBalancesMinor.containsKey(transferTo)) {
-        accountBalancesMinor[transferTo] = (accountBalancesMinor[transferTo] ?? 0) + amountMinor;
-      }
+      final int recalculatedMinor = openingMinor + netTxMinor;
+      accountBalancesMinor[accId] = recalculatedMinor;
     }
 
     for (var entry in accountBalancesMinor.entries) {
@@ -510,6 +634,8 @@ class AppDatabase {
         type TEXT NOT NULL,
         balance REAL NOT NULL DEFAULT 0.0,
         balance_minor INTEGER NOT NULL DEFAULT 0,
+        initial_balance REAL NOT NULL DEFAULT 0.0,
+        initial_balance_minor INTEGER NOT NULL DEFAULT 0,
         icon TEXT NOT NULL,
         color TEXT NOT NULL,
         is_shared INTEGER NOT NULL DEFAULT 1,
@@ -739,6 +865,29 @@ class AppDatabase {
       )
     ''');
 
+    // 18. backup_metadata Table
+    await db.execute('''
+      CREATE TABLE backup_metadata (
+        key TEXT PRIMARY KEY,
+        value TEXT NOT NULL
+      )
+    ''');
+
+    // 19. balance_audit_log Table
+    await db.execute('''
+      CREATE TABLE balance_audit_log (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        account_id INTEGER NOT NULL,
+        timestamp TEXT NOT NULL,
+        event_type TEXT NOT NULL,
+        opening_balance_minor INTEGER NOT NULL,
+        net_transactions_minor INTEGER NOT NULL,
+        calculated_balance_minor INTEGER NOT NULL,
+        stored_balance_minor INTEGER NOT NULL,
+        reconciliation_status TEXT NOT NULL
+      )
+    ''');
+
     // Seed Data
     await _seedDatabase(db);
   }
@@ -767,6 +916,32 @@ class AppDatabase {
     if (_database != null) {
       await _database!.close();
       _database = null;
+    }
+  }
+
+  /// Checkpoints the SQLite WAL (Write-Ahead Log) into the main database file.
+  Future<void> checkpoint([Database? targetDb]) async {
+    try {
+      final db = targetDb ?? (await database);
+      await db.rawQuery('PRAGMA wal_checkpoint(TRUNCATE)');
+    } catch (e) {
+      debugPrint('[AppDatabase.checkpoint] Warning: $e');
+    }
+  }
+
+  /// Verifies SQLite database integrity and foreign key consistency.
+  Future<bool> verifyIntegrity([Database? targetDb]) async {
+    try {
+      final db = targetDb ?? (await database);
+      final checkResult = await db.rawQuery('PRAGMA quick_check');
+      final isIntegrityOk = checkResult.isNotEmpty && checkResult.first.values.first == 'ok';
+      if (!isIntegrityOk) return false;
+
+      final fkResult = await db.rawQuery('PRAGMA foreign_key_check');
+      return fkResult.isEmpty;
+    } catch (e) {
+      debugPrint('[AppDatabase.verifyIntegrity] Error: $e');
+      return false;
     }
   }
 

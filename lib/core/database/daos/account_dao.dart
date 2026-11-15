@@ -8,7 +8,12 @@ class AccountDao {
   Future<int> insertAccount(Account account) async {
     try {
       final db = await _dbProvider.database;
-      return await db.insert('account', account.toMap());
+      final map = account.toMap();
+      if (!map.containsKey('initial_balance_minor') || map['initial_balance_minor'] == null) {
+        map['initial_balance_minor'] = account.balanceMinorUnits;
+        map['initial_balance'] = account.balance;
+      }
+      return await db.insert('account', map);
     } catch (e) {
       throw Exception('AccountDao.insertAccount failed: $e');
     }

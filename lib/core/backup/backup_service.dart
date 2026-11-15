@@ -1,5 +1,6 @@
 import 'dart:io';
 import 'dart:convert';
+import 'package:crypto/crypto.dart';
 import 'package:google_sign_in/google_sign_in.dart';
 import 'package:googleapis/drive/v3.dart' as drive;
 import 'package:path/path.dart' as p;
@@ -8,6 +9,7 @@ import 'package:http/http.dart' as http;
 import 'package:share_plus/share_plus.dart';
 import 'package:file_picker/file_picker.dart';
 import 'package:csv/csv.dart';
+import 'package:sqflite/sqflite.dart';
 import '../database/database.dart';
 import '../database/daos/category_dao.dart';
 import '../utils/app_logger.dart';
@@ -23,6 +25,42 @@ class GoogleAuthClient extends http.BaseClient {
     request.headers.addAll(_headers);
     return _client.send(request);
   }
+}
+
+class BackupValidationResult {
+  final bool isValid;
+  final String? errorMessage;
+  final int? schemaVersion;
+  final int accountCount;
+  final int transactionCount;
+  final Map<String, dynamic>? metadata;
+
+  const BackupValidationResult({
+    required this.isValid,
+    this.errorMessage,
+    this.schemaVersion,
+    this.accountCount = 0,
+    this.transactionCount = 0,
+    this.metadata,
+  });
+}
+
+class RestoreResult {
+  final bool success;
+  final String message;
+  final int restoredAccounts;
+  final int restoredTransactions;
+  final List<String> balanceSummaries;
+  final String? errorMessage;
+
+  const RestoreResult({
+    required this.success,
+    required this.message,
+    this.restoredAccounts = 0,
+    this.restoredTransactions = 0,
+    this.balanceSummaries = const [],
+    this.errorMessage,
+  });
 }
 
 class BackupService {
@@ -192,7 +230,15 @@ class BackupService {
       'savings_goal',
       'debt_loan',
       'filter_preset',
-      'diagnostic_profile'
+      'diagnostic_profile',
+      'transaction_template',
+      'health_score_history',
+      'intelligence_report_history',
+      'weekly_checkins',
+      'planning_meta',
+      'report_history',
+      'backup_metadata',
+      'balance_audit_log',
     ];
 
     for (var table in tables) {
@@ -218,21 +264,34 @@ class BackupService {
         'savings_goal',
         'debt_loan',
         'filter_preset',
-        'diagnostic_profile'
+        'diagnostic_profile',
+        'transaction_template',
+        'health_score_history',
+        'intelligence_report_history',
+        'weekly_checkins',
+        'planning_meta',
+        'report_history',
+        'backup_metadata',
+        'balance_audit_log',
       ];
 
       for (var table in tables) {
         if (data.containsKey(table)) {
-          await txn.delete(table);
-          final List<dynamic> rows = data[table];
-          for (var row in rows) {
-            if (row is Map<String, dynamic>) {
-              await txn.insert(table, row);
+          try {
+            await txn.delete(table);
+            final List<dynamic> rows = data[table];
+            for (var row in rows) {
+              if (row is Map<String, dynamic>) {
+                await txn.insert(table, row);
+              }
             }
-          }
+          } catch (_) {}
         }
       }
     });
+
+    // Reconcile and recalculate balances
+    await AppDatabase.instance.recalculateAllBalances(db);
   }
 
   Future<String> exportDataToCsv() async {
@@ -318,7 +377,7 @@ class BackupService {
 
     await db.transaction((txn) async {
       await txn.delete('transaction_log');
-      await txn.rawUpdate('UPDATE account SET balance = 0.0');
+      await txn.rawUpdate('UPDATE account SET balance = 0.0, balance_minor = 0');
 
       for (int i = headerRowIndex + 1; i < rows.length; i++) {
         final row = rows[i];
@@ -347,6 +406,9 @@ class BackupService {
             'name': accountName,
             'type': 'Bank',
             'balance': 0.0,
+            'balance_minor': 0,
+            'initial_balance': 0.0,
+            'initial_balance_minor': 0,
             'icon': 'account_balance',
             'color': '1E88E5',
             'is_shared': 1,
@@ -370,12 +432,14 @@ class BackupService {
         }
 
         final isPrivate = isPrivateStr == 'yes' || isPrivateStr == 'true' || isPrivateStr == '1';
+        final amtMinor = (amount * 100).round();
 
         await txn.insert('transaction_log', {
           'account_id': accountId,
           'category_id': categoryId,
           'title': title,
           'amount': amount,
+          'amount_minor': amtMinor,
           'type': type,
           'date': date.toIso8601String().substring(0, 10),
           'note': note.isEmpty ? null : note,
@@ -384,24 +448,10 @@ class BackupService {
           'is_private': isPrivate ? 1 : 0,
           'created_at': DateTime.now().toIso8601String(),
         });
-
-        if (type == 'income') {
-          await txn.rawUpdate('UPDATE account SET balance = balance + ? WHERE id = ?', [amount, accountId]);
-        } else if (type == 'expense') {
-          await txn.rawUpdate('UPDATE account SET balance = balance - ? WHERE id = ?', [amount, accountId]);
-        } else if (type == 'transfer') {
-          await txn.rawUpdate('UPDATE account SET balance = balance - ? WHERE id = ?', [amount, accountId]);
-          final destRegExp = RegExp(r'Transfer to target account ID: (\d+)');
-          final match = destRegExp.firstMatch(note);
-          if (match != null) {
-            final destId = int.tryParse(match.group(1) ?? '');
-            if (destId != null) {
-              await txn.rawUpdate('UPDATE account SET balance = balance + ? WHERE id = ?', [amount, destId]);
-            }
-          }
-        }
       }
     });
+
+    await AppDatabase.instance.recalculateAllBalances(db);
   }
 
   // --- High-Level Local Backup & Restore Entry Points ---
@@ -419,19 +469,63 @@ class BackupService {
         final dbFile = File(localDbPath);
         if (!await dbFile.exists()) return false;
         
-        fileName = 'money_manager_backup.db';
+        // 1. Flush WAL and checkpoint
+        await AppDatabase.instance.checkpoint();
+
+        // 2. Validate database integrity before export
+        final isIntegrityValid = await AppDatabase.instance.verifyIntegrity();
+        if (!isIntegrityValid) {
+          AppLogger.e('Database integrity check failed prior to export.', tag: 'BackupService');
+          return false;
+        }
+
+        // 3. Stamp metadata in SQLite database
+        final db = await AppDatabase.instance.database;
+        String preferredCurrency = 'INR';
+        try {
+          final profile = await db.query('user_profile', limit: 1);
+          if (profile.isNotEmpty && profile.first['preferred_currency'] != null) {
+            preferredCurrency = profile.first['preferred_currency'] as String;
+          }
+        } catch (_) {}
+
+        final metadata = {
+          'backup_created_at': DateTime.now().toIso8601String(),
+          'app_version': '1.1.0',
+          'db_schema_version': '14',
+          'backup_format_version': '2.0',
+          'preferred_currency': preferredCurrency,
+        };
+
+        for (final entry in metadata.entries) {
+          await db.insert(
+            'backup_metadata',
+            {'key': entry.key, 'value': entry.value},
+            conflictAlgorithm: ConflictAlgorithm.replace,
+          );
+        }
+
+        // 4. Final checkpoint to ensure metadata is flushed
+        await AppDatabase.instance.checkpoint();
+
+        fileName = 'money_manager_backup_${DateTime.now().millisecondsSinceEpoch}.db';
         final tempFile = File(p.join(tempDir.path, fileName));
         await dbFile.copy(tempFile.path);
+
+        final bytes = await tempFile.readAsBytes();
+        final checksum = sha256.convert(bytes).toString();
+        AppLogger.i('Backup exported. Checksum: $checksum, size: ${bytes.length} bytes', tag: 'BackupService');
+
         fileToShare = tempFile;
       } else if (format == 'json') {
         final jsonStr = await exportDataToJson();
-        fileName = 'money_manager_backup.json';
+        fileName = 'money_manager_backup_${DateTime.now().millisecondsSinceEpoch}.json';
         final tempFile = File(p.join(tempDir.path, fileName));
         await tempFile.writeAsString(jsonStr);
         fileToShare = tempFile;
       } else if (format == 'csv') {
         final csvStr = await exportDataToCsv();
-        fileName = 'money_manager_backup.csv';
+        fileName = 'money_manager_backup_${DateTime.now().millisecondsSinceEpoch}.csv';
         final tempFile = File(p.join(tempDir.path, fileName));
         await tempFile.writeAsString(csvStr);
         fileToShare = tempFile;
@@ -444,12 +538,257 @@ class BackupService {
         subject: 'Money Manager Backup (${format.toUpperCase()})',
       );
       return true;
-    } catch (_) {
+    } catch (e, stack) {
+      AppLogger.e('Error during backupToLocal', error: e, stackTrace: stack, tag: 'BackupService');
       return false;
     }
   }
 
-  Future<bool> restoreFromLocal(String format) async {
+  /// Validates candidate backup file.
+  Future<BackupValidationResult> validateBackupFile(File candidateFile) async {
+    try {
+      if (!await candidateFile.exists()) {
+        return const BackupValidationResult(
+          isValid: false,
+          errorMessage: 'Backup file does not exist.',
+        );
+      }
+
+      final fileSize = await candidateFile.length();
+      if (fileSize < 100) {
+        return const BackupValidationResult(
+          isValid: false,
+          errorMessage: 'File is empty or too small to be a valid database.',
+        );
+      }
+
+      // Check SQLite header magic bytes
+      final raf = await candidateFile.open(mode: FileMode.read);
+      final headerBytes = await raf.read(16);
+      await raf.close();
+
+      final magic = utf8.decode(headerBytes.sublist(0, 15), allowMalformed: true);
+      if (magic != 'SQLite format 3' || headerBytes[15] != 0) {
+        return const BackupValidationResult(
+          isValid: false,
+          errorMessage: 'Selected file is not a valid SQLite database.',
+        );
+      }
+
+      // Open read-only to inspect schema and user_version
+      final db = await openReadOnlyDatabase(candidateFile.path);
+      try {
+        final quickCheck = await db.rawQuery('PRAGMA quick_check');
+        final isOk = quickCheck.isNotEmpty && quickCheck.first.values.first == 'ok';
+        if (!isOk) {
+          return const BackupValidationResult(
+            isValid: false,
+            errorMessage: 'Database integrity check failed.',
+          );
+        }
+
+        final versionResult = await db.rawQuery('PRAGMA user_version');
+        final int userVersion = Sqflite.firstIntValue(versionResult) ?? 0;
+
+        if (userVersion > 14) {
+          return BackupValidationResult(
+            isValid: false,
+            schemaVersion: userVersion,
+            errorMessage: 'Backup was created by a newer version of Money Manager (v$userVersion). Current app supports up to v14. Please update the application.',
+          );
+        }
+
+        final tablesResult = await db.rawQuery("SELECT name FROM sqlite_master WHERE type='table'");
+        final tableNames = tablesResult.map((r) => r['name'] as String).toSet();
+
+        if (!tableNames.contains('account') || !tableNames.contains('transaction_log') || !tableNames.contains('category')) {
+          return const BackupValidationResult(
+            isValid: false,
+            errorMessage: 'Database is missing essential financial tables (account, transaction_log, category).',
+          );
+        }
+
+        final accountCount = Sqflite.firstIntValue(await db.rawQuery('SELECT COUNT(*) FROM account')) ?? 0;
+        final txCount = Sqflite.firstIntValue(await db.rawQuery('SELECT COUNT(*) FROM transaction_log')) ?? 0;
+
+        return BackupValidationResult(
+          isValid: true,
+          schemaVersion: userVersion,
+          accountCount: accountCount,
+          transactionCount: txCount,
+        );
+      } finally {
+        await db.close();
+      }
+    } catch (e) {
+      return BackupValidationResult(
+        isValid: false,
+        errorMessage: 'Validation failed: $e',
+      );
+    }
+  }
+
+  /// Full 5-step restoration pipeline.
+  Future<RestoreResult> restoreFromFile(File backupFile, {String format = 'sqlite'}) async {
+    if (format != 'sqlite') {
+      try {
+        final content = await backupFile.readAsString();
+        if (format == 'json') {
+          await importDataFromJson(content);
+        } else if (format == 'csv') {
+          await importDataFromCsv(content);
+        }
+        return const RestoreResult(
+          success: true,
+          message: 'Data restored successfully.',
+        );
+      } catch (e) {
+        return RestoreResult(
+          success: false,
+          message: 'Restore failed.',
+          errorMessage: '$e',
+        );
+      }
+    }
+
+    final dbFolder = await getApplicationDocumentsDirectory();
+    final tempDir = await getTemporaryDirectory();
+
+    final localDbPath = p.join(dbFolder.path, 'money_manager.db');
+    final activeDbFile = File(localDbPath);
+    final safetyBackupFile = File(p.join(tempDir.path, 'money_manager_pre_restore_safety_backup.db'));
+    final stageDbFile = File(p.join(tempDir.path, 'temp_restore_stage_${DateTime.now().millisecondsSinceEpoch}.db'));
+
+    try {
+      // -------------------------------------------------------------
+      // Step 1: Validate the backup
+      // -------------------------------------------------------------
+      final validation = await validateBackupFile(backupFile);
+      if (!validation.isValid) {
+        return RestoreResult(
+          success: false,
+          message: 'Validation failed',
+          errorMessage: validation.errorMessage ?? 'Invalid database file.',
+        );
+      }
+
+      // -------------------------------------------------------------
+      // Step 2: Create a safety backup of active database
+      // -------------------------------------------------------------
+      if (await activeDbFile.exists()) {
+        try {
+          await AppDatabase.instance.checkpoint();
+        } catch (_) {}
+        await activeDbFile.copy(safetyBackupFile.path);
+
+        final activeWalFile = File('$localDbPath-wal');
+        if (await activeWalFile.exists()) {
+          await activeWalFile.copy('${safetyBackupFile.path}-wal');
+        }
+        final activeShmFile = File('$localDbPath-shm');
+        if (await activeShmFile.exists()) {
+          await activeShmFile.copy('${safetyBackupFile.path}-shm');
+        }
+      }
+
+      // -------------------------------------------------------------
+      // Step 3: Restore into temporary database & run migrations & reconcile balances
+      // -------------------------------------------------------------
+      if (await stageDbFile.exists()) await stageDbFile.delete();
+      final stageWal = File('${stageDbFile.path}-wal');
+      if (await stageWal.exists()) await stageWal.delete();
+      final stageShm = File('${stageDbFile.path}-shm');
+      if (await stageShm.exists()) await stageShm.delete();
+
+      await backupFile.copy(stageDbFile.path);
+
+      final stageDb = await openDatabase(
+        stageDbFile.path,
+        version: 14,
+        onUpgrade: AppDatabase.instance.upgradeDatabase,
+      );
+
+      final quickCheck = await stageDb.rawQuery('PRAGMA quick_check');
+      final isOk = quickCheck.isNotEmpty && quickCheck.first.values.first == 'ok';
+      if (!isOk) {
+        await stageDb.close();
+        throw Exception('Integrity check failed on staged migrated database.');
+      }
+
+      // Reconcile and audit all balances
+      await AppDatabase.instance.recalculateAllBalances(stageDb);
+
+      final accounts = await stageDb.query('account');
+      final txCount = Sqflite.firstIntValue(await stageDb.rawQuery('SELECT COUNT(*) FROM transaction_log')) ?? 0;
+
+      final balanceSummaries = accounts.map((acc) {
+        final name = acc['name'] as String;
+        final balance = (acc['balance'] as num).toDouble();
+        return '$name: ₹$balance';
+      }).toList();
+
+      await stageDb.rawQuery('PRAGMA wal_checkpoint(TRUNCATE)');
+      await stageDb.close();
+
+      // -------------------------------------------------------------
+      // Step 4: Replace active database safely
+      // -------------------------------------------------------------
+      await AppDatabase.instance.close();
+
+      // Delete active WAL and SHM files to prevent corruption from leftover frames
+      final activeWal = File('$localDbPath-wal');
+      if (await activeWal.exists()) await activeWal.delete();
+      final activeShm = File('$localDbPath-shm');
+      if (await activeShm.exists()) await activeShm.delete();
+
+      // Copy stage file over active DB
+      await stageDbFile.copy(localDbPath);
+      await stageDbFile.delete();
+
+      // Re-open active database
+      await AppDatabase.instance.database;
+
+      // Clean up safety backup upon verified success
+      if (await safetyBackupFile.exists()) {
+        try { await safetyBackupFile.delete(); } catch (_) {}
+      }
+
+      return RestoreResult(
+        success: true,
+        message: 'Database restored and balances reconciled successfully.',
+        restoredAccounts: accounts.length,
+        restoredTransactions: txCount,
+        balanceSummaries: balanceSummaries,
+      );
+    } catch (e, stack) {
+      AppLogger.e('Error during database restore', error: e, stackTrace: stack, tag: 'BackupService');
+
+      // Rollback to safety backup if active DB was modified
+      if (await safetyBackupFile.exists()) {
+        try {
+          await AppDatabase.instance.close();
+          await safetyBackupFile.copy(localDbPath);
+          final safetyWal = File('${safetyBackupFile.path}-wal');
+          if (await safetyWal.exists()) {
+            await safetyWal.copy('$localDbPath-wal');
+          }
+          final safetyShm = File('${safetyBackupFile.path}-shm');
+          if (await safetyShm.exists()) {
+            await safetyShm.copy('$localDbPath-shm');
+          }
+          await AppDatabase.instance.database;
+        } catch (_) {}
+      }
+
+      return RestoreResult(
+        success: false,
+        message: 'Restore operation failed. Active database preserved.',
+        errorMessage: '$e',
+      );
+    }
+  }
+
+  Future<RestoreResult> restoreFromLocalWithResult(String format) async {
     try {
       final pickerResult = await FilePicker.platform.pickFiles(
         type: FileType.any,
@@ -457,49 +796,43 @@ class BackupService {
       );
 
       if (pickerResult == null || pickerResult.files.isEmpty) {
-        return false;
+        return const RestoreResult(
+          success: false,
+          message: 'Restore cancelled',
+          errorMessage: 'No file was selected.',
+        );
       }
 
       final file = pickerResult.files.single;
+      final tempDir = await getTemporaryDirectory();
+      final candidatePath = p.join(tempDir.path, 'picked_backup_${file.name}');
+      final candidateFile = File(candidatePath);
 
-      if (format == 'sqlite') {
-        final dbFolder = await getApplicationDocumentsDirectory();
-        final localDbPath = p.join(dbFolder.path, 'money_manager.db');
-        await AppDatabase.instance.close();
-        if (file.bytes != null) {
-          await File(localDbPath).writeAsBytes(file.bytes!);
-          return true;
-        } else if (file.path != null) {
-          await File(file.path!).copy(localDbPath);
-          return true;
-        }
-        return false;
-      }
-
-      // Get the file content as String (for JSON/CSV)
-      String? fileContent;
       if (file.bytes != null) {
-        fileContent = utf8.decode(file.bytes!);
+        await candidateFile.writeAsBytes(file.bytes!);
       } else if (file.path != null) {
-        final pickedFile = File(file.path!);
-        fileContent = await pickedFile.readAsString();
+        await File(file.path!).copy(candidateFile.path);
+      } else {
+        return const RestoreResult(
+          success: false,
+          message: 'Restore failed',
+          errorMessage: 'Unable to read selected file.',
+        );
       }
 
-      if (format == 'json') {
-        if (fileContent == null) return false;
-        await importDataFromJson(fileContent);
-        return true;
-      } else if (format == 'csv') {
-        if (fileContent == null) return false;
-        await importDataFromCsv(fileContent);
-        return true;
-      }
-      return false;
-    } catch (e, stack) {
-      print('Error in restoreFromLocal: $e');
-      print(stack);
-      return false;
+      return await restoreFromFile(candidateFile, format: format);
+    } catch (e) {
+      return RestoreResult(
+        success: false,
+        message: 'Restore error',
+        errorMessage: '$e',
+      );
     }
+  }
+
+  Future<bool> restoreFromLocal(String format) async {
+    final result = await restoreFromLocalWithResult(format);
+    return result.success;
   }
 
   // --- High-Level Google Drive Backup & Restore Entry Points ---
@@ -515,6 +848,11 @@ class BackupService {
         final localDbPath = p.join(dbFolder.path, 'money_manager.db');
         localFile = File(localDbPath);
         driveFileName = 'money_manager_backup.db';
+
+        // Checkpoint before upload
+        await AppDatabase.instance.checkpoint();
+        final isValid = await AppDatabase.instance.verifyIntegrity();
+        if (!isValid) return false;
       } else if (format == 'json') {
         final jsonStr = await exportDataToJson();
         driveFileName = 'money_manager_backup.json';
@@ -535,37 +873,60 @@ class BackupService {
     }
   }
 
-  Future<bool> restoreFromGoogleDrive(String format) async {
+  Future<RestoreResult> restoreFromGoogleDriveWithResult(String format) async {
     try {
-      final dbFolder = await getApplicationDocumentsDirectory();
       final tempDir = await getTemporaryDirectory();
       
       if (format == 'sqlite') {
-        final localDbPath = p.join(dbFolder.path, 'money_manager.db');
-        await AppDatabase.instance.close();
-        final success = await restoreFileFromDrive('money_manager_backup.db', File(localDbPath));
-        return success;
+        final candidateFile = File(p.join(tempDir.path, 'downloaded_drive_backup.db'));
+        final success = await restoreFileFromDrive('money_manager_backup.db', candidateFile);
+        if (!success) {
+          return const RestoreResult(
+            success: false,
+            message: 'Restore failed',
+            errorMessage: 'Could not download backup from Google Drive.',
+          );
+        }
+        return await restoreFromFile(candidateFile, format: 'sqlite');
       } else if (format == 'json') {
         final tempFile = File(p.join(tempDir.path, 'money_manager_backup.json'));
         final success = await restoreFileFromDrive('money_manager_backup.json', tempFile);
-        if (!success) return false;
-        
-        final jsonStr = await tempFile.readAsString();
-        await importDataFromJson(jsonStr);
-        return true;
+        if (!success) {
+          return const RestoreResult(
+            success: false,
+            message: 'Restore failed',
+            errorMessage: 'Could not download JSON backup from Google Drive.',
+          );
+        }
+        return await restoreFromFile(tempFile, format: 'json');
       } else if (format == 'csv') {
         final tempFile = File(p.join(tempDir.path, 'money_manager_backup.csv'));
         final success = await restoreFileFromDrive('money_manager_backup.csv', tempFile);
-        if (!success) return false;
-
-        final csvStr = await tempFile.readAsString();
-        await importDataFromCsv(csvStr);
-        return true;
+        if (!success) {
+          return const RestoreResult(
+            success: false,
+            message: 'Restore failed',
+            errorMessage: 'Could not download CSV backup from Google Drive.',
+          );
+        }
+        return await restoreFromFile(tempFile, format: 'csv');
       }
-      return false;
-    } catch (_) {
-      return false;
+      return const RestoreResult(
+        success: false,
+        message: 'Invalid format',
+        errorMessage: 'Unsupported backup format.',
+      );
+    } catch (e) {
+      return RestoreResult(
+        success: false,
+        message: 'Restore error',
+        errorMessage: '$e',
+      );
     }
   }
-}
 
+  Future<bool> restoreFromGoogleDrive(String format) async {
+    final result = await restoreFromGoogleDriveWithResult(format);
+    return result.success;
+  }
+}

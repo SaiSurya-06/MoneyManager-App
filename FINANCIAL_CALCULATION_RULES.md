@@ -20,8 +20,12 @@ $$\text{majorUnits} = \frac{\text{minorUnits}}{10^{\text{exponent}}}$$
 - BHD, KWD: $\text{exponent} = 3$ ($1.000 \to 1000$)
 
 ### 2.2 Account Balance Calculation
-For account $A$ across all chronological transactions $T$:
-$$\text{balanceMinor}(A) = \sum_{t \in T_{\text{income}}, t.acc = A} t.\text{amountMinor} - \sum_{t \in T_{\text{expense}}, t.acc = A} t.\text{amountMinor} - \sum_{t \in T_{\text{transfer\_out}}, t.src = A} t.\text{amountMinor} + \sum_{t \in T_{\text{transfer\_in}}, t.dst = A} t.\text{amountMinor}$$
+For account $A$ with opening balance $\text{initialBalanceMinor}(A)$ across all chronological transactions $T$:
+$$\text{balanceMinor}(A) = \text{initialBalanceMinor}(A) + \sum_{t \in T_{\text{income}}, t.acc = A} t.\text{amountMinor} - \sum_{t \in T_{\text{expense}}, t.acc = A} t.\text{amountMinor} - \sum_{t \in T_{\text{transfer\_out}}, t.src = A} t.\text{amountMinor} + \sum_{t \in T_{\text{transfer\_in}}, t.dst = A} t.\text{amountMinor} + \sum_{t \in T_{\text{cc\_payment}}, t.dst = A} t.\text{amountMinor}$$
+
+- **Opening Balance Invariant**: When an account is created with a starting balance, $\text{initialBalanceMinor}(A)$ is stored directly on the account record. Under no circumstances may recalculation, migration, or restore reset $\text{initialBalanceMinor}(A)$ to $0$.
+- **Legacy Database Derivation**: For legacy databases where opening balances were not stored separately, the opening balance is derived via:
+  $$\text{initialBalanceMinor}(A) = \text{storedBalanceMinor}(A) - \text{netTransactionsMinor}(A)$$
 
 ### 2.3 Credit Card Available Credit
 $$\text{availableCreditMinor} = \text{limitAmountMinor} - \max(0, -\text{balanceMinor})$$
