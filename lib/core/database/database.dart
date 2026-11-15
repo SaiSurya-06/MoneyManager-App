@@ -500,6 +500,42 @@ class AppDatabase {
     }
   }
 
+  Future<void> _migrateNotesToColumn(Database db) async {
+    final txs = await db.query(
+      'transaction_log',
+      columns: ['id', 'note', 'type'],
+      where: "note LIKE '%target account ID: %'",
+    );
+    final transferRegExp = RegExp(r'Transfer to target account ID:\s*(\d+)', caseSensitive: false);
+    final ccRegExp = RegExp(r'Credit Card [Pp]ayment to (?:target )?account ID:\s*(\d+)', caseSensitive: false);
+
+    for (var tx in txs) {
+      final id = tx['id'] as int;
+      final note = tx['note'] as String?;
+      if (note == null) continue;
+
+      int? targetAccountId;
+      final transferMatch = transferRegExp.firstMatch(note);
+      if (transferMatch != null) {
+        targetAccountId = int.tryParse(transferMatch.group(1) ?? '');
+      } else {
+        final ccMatch = ccRegExp.firstMatch(note);
+        if (ccMatch != null) {
+          targetAccountId = int.tryParse(ccMatch.group(1) ?? '');
+        }
+      }
+
+      if (targetAccountId != null) {
+        await db.update(
+          'transaction_log',
+          {'transfer_to_account_id': targetAccountId},
+          where: 'id = ?',
+          whereArgs: [id],
+        );
+      }
+    }
+  }
+
   static int getNetTransactionsMinorForAccount(
     DatabaseExecutor db,
     int accountId, [
