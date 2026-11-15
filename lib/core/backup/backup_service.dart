@@ -578,7 +578,7 @@ class BackupService {
       // Open read-only to inspect schema and user_version
       final db = await databaseFactory.openDatabase(
         candidateFile.path,
-        options: const OpenDatabaseOptions(readOnly: true),
+        options: OpenDatabaseOptions(readOnly: true),
       );
       try {
         final quickCheck = await db.rawQuery('PRAGMA quick_check');
