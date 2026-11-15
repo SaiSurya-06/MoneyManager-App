@@ -30,6 +30,8 @@ void main() {
         type TEXT NOT NULL,
         balance REAL NOT NULL DEFAULT 0.0,
         balance_minor INTEGER NOT NULL DEFAULT 0,
+        initial_balance REAL NOT NULL DEFAULT 0.0,
+        initial_balance_minor INTEGER NOT NULL DEFAULT 0,
         icon TEXT NOT NULL,
         color TEXT NOT NULL,
         is_shared INTEGER NOT NULL DEFAULT 1,

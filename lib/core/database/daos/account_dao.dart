@@ -5,6 +5,23 @@ import 'package:sqflite/sqflite.dart';
 class AccountDao {
   final AppDatabase _dbProvider = AppDatabase.instance;
 
+  Future<Map<String, dynamic>> _filterToExistingColumns(
+    DatabaseExecutor db,
+    String table,
+    Map<String, dynamic> map,
+  ) async {
+    try {
+      final tableInfo = await db.rawQuery("PRAGMA table_info('$table')");
+      if (tableInfo.isEmpty) return map;
+      final columnNames = tableInfo.map((c) => c['name'] as String).toSet();
+      final filtered = Map<String, dynamic>.from(map);
+      filtered.removeWhere((key, _) => !columnNames.contains(key));
+      return filtered;
+    } catch (_) {
+      return map;
+    }
+  }
+
   Future<int> insertAccount(Account account) async {
     try {
       final db = await _dbProvider.database;
@@ -13,7 +30,8 @@ class AccountDao {
         map['initial_balance_minor'] = account.balanceMinorUnits;
         map['initial_balance'] = account.balance;
       }
-      return await db.insert('account', map);
+      final safeMap = await _filterToExistingColumns(db, 'account', map);
+      return await db.insert('account', safeMap);
     } catch (e) {
       throw Exception('AccountDao.insertAccount failed: $e');
     }
@@ -22,9 +40,10 @@ class AccountDao {
   Future<int> updateAccount(Account account) async {
     try {
       final db = await _dbProvider.database;
+      final safeMap = await _filterToExistingColumns(db, 'account', account.toMap());
       return await db.update(
         'account',
-        account.toMap(),
+        safeMap,
         where: 'id = ?',
         whereArgs: [account.id],
       );

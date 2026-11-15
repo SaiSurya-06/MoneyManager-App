@@ -412,7 +412,7 @@ void main() {
       // 3. Corrupt file rejection
       final corruptPath = '$tempDir/corrupt.db';
       final corruptFile = File(corruptPath);
-      await corruptFile.writeAsString('THIS IS NOT A VALID SQLITE DATABASE FILE HEADER');
+      await corruptFile.writeAsString('THIS IS NOT A VALID SQLITE DATABASE FILE HEADER - PADDED TO MEET MIN SIZE 128 BYTES FOR SQLITE HEADER VERIFICATION');
 
       final corruptResult = await BackupService.instance.validateBackupFile(corruptFile);
       expect(corruptResult.isValid, isFalse);

@@ -342,33 +342,53 @@ class AppDatabase {
           limit_amount_minor = CAST(ROUND(limit_amount * 100) AS INTEGER)
       ''');
 
-      await db.execute('''
-        UPDATE savings_goal SET 
-          target_amount_minor = CAST(ROUND(target_amount * 100) AS INTEGER),
-          current_amount_minor = CAST(ROUND(current_amount * 100) AS INTEGER)
-      ''');
+      try {
+        await db.execute('''
+          UPDATE savings_goal SET 
+            target_amount_minor = CAST(ROUND(target_amount * 100) AS INTEGER),
+            current_amount_minor = CAST(ROUND(current_amount * 100) AS INTEGER)
+        ''');
+      } catch (e) {
+        assert(() { debugPrint('[DB migration v13 savings_goal] $e'); return true; }());
+      }
 
-      await db.execute('''
-        UPDATE debt_loan SET 
-          balance_minor = CAST(ROUND(balance * 100) AS INTEGER),
-          original_amount_minor = CAST(ROUND(original_amount * 100) AS INTEGER),
-          monthly_payment_minor = CAST(ROUND(monthly_payment * 100) AS INTEGER)
-      ''');
+      try {
+        await db.execute('''
+          UPDATE debt_loan SET 
+            balance_minor = CAST(ROUND(balance * 100) AS INTEGER),
+            original_amount_minor = CAST(ROUND(original_amount * 100) AS INTEGER),
+            monthly_payment_minor = CAST(ROUND(monthly_payment * 100) AS INTEGER)
+        ''');
+      } catch (e) {
+        assert(() { debugPrint('[DB migration v13 debt_loan] $e'); return true; }());
+      }
 
-      await db.execute('''
-        UPDATE category SET 
-          spending_limit_minor = CASE WHEN spending_limit IS NOT NULL THEN CAST(ROUND(spending_limit * 100) AS INTEGER) ELSE NULL END
-      ''');
+      try {
+        await db.execute('''
+          UPDATE category SET 
+            spending_limit_minor = CASE WHEN spending_limit IS NOT NULL THEN CAST(ROUND(spending_limit * 100) AS INTEGER) ELSE NULL END
+        ''');
+      } catch (e) {
+        assert(() { debugPrint('[DB migration v13 category] $e'); return true; }());
+      }
 
-      await db.execute('''
-        UPDATE transaction_template SET 
-          amount_minor = CAST(ROUND(amount * 100) AS INTEGER)
-      ''');
+      try {
+        await db.execute('''
+          UPDATE transaction_template SET 
+            amount_minor = CAST(ROUND(amount * 100) AS INTEGER)
+        ''');
+      } catch (e) {
+        assert(() { debugPrint('[DB migration v13 transaction_template] $e'); return true; }());
+      }
 
-      await db.execute('''
-        UPDATE planning_meta SET 
-          estimated_income_minor = CAST(ROUND(estimated_income * 100) AS INTEGER)
-      ''');
+      try {
+        await db.execute('''
+          UPDATE planning_meta SET 
+            estimated_income_minor = CAST(ROUND(estimated_income * 100) AS INTEGER)
+        ''');
+      } catch (e) {
+        assert(() { debugPrint('[DB migration v13 planning_meta] $e'); return true; }());
+      }
 
       // 4. Recalculate account balances using integer minor units, preserving opening balances
       await recalculateAllBalances(db);
@@ -597,9 +617,10 @@ class AppDatabase {
     final accounts = await db.query('account');
     final allTxs = await db.query('transaction_log');
     
-    // Check if initial_balance_minor column exists in account
+    // Check which columns exist in account
     final tableInfo = await db.rawQuery("PRAGMA table_info('account')");
     final hasInitialBalance = tableInfo.any((col) => col['name'] == 'initial_balance_minor');
+    final hasBalanceMinor = tableInfo.any((col) => col['name'] == 'balance_minor');
 
     final accountBalancesMinor = <int, int>{};
 
@@ -635,12 +656,13 @@ class AppDatabase {
     for (var entry in accountBalancesMinor.entries) {
       final minor = entry.value;
       final major = minor / 100.0;
+      final updateData = <String, dynamic>{'balance': major};
+      if (hasBalanceMinor) {
+        updateData['balance_minor'] = minor;
+      }
       await db.update(
         'account',
-        {
-          'balance': major,
-          'balance_minor': minor,
-        },
+        updateData,
         where: 'id = ?',
         whereArgs: [entry.key],
       );

@@ -558,7 +558,7 @@ class BackupService {
       if (fileSize < 100) {
         return const BackupValidationResult(
           isValid: false,
-          errorMessage: 'File is empty or too small to be a valid database.',
+          errorMessage: 'Selected file is not a valid SQLite database (file is empty or too small).',
         );
       }
 
@@ -576,7 +576,10 @@ class BackupService {
       }
 
       // Open read-only to inspect schema and user_version
-      final db = await openReadOnlyDatabase(candidateFile.path);
+      final db = await databaseFactory.openDatabase(
+        candidateFile.path,
+        options: const OpenDatabaseOptions(readOnly: true),
+      );
       try {
         final quickCheck = await db.rawQuery('PRAGMA quick_check');
         final isOk = quickCheck.isNotEmpty && quickCheck.first.values.first == 'ok';
