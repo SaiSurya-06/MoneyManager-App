@@ -105,12 +105,12 @@ void main() {
         'created_at': '2026-01-01',
       });
 
-      // Account B — Cash: Opening ₹5,000, Expense ₹500, Incoming transfer ₹5,000 -> Current balance = ₹9,500
+      // Account B — Cash: Opening ₹5,000, Incoming transfer ₹5,000, Outgoing transfer ₹2,000, Expense ₹500 -> Current balance = ₹7,500
       await db.insert('account', {
         'id': 2,
         'name': 'Cash',
         'type': 'Cash',
-        'balance': 9500.0,
+        'balance': 7500.0,
         'icon': 'payments',
         'color': '#4CAF50',
         'is_shared': 1,
@@ -201,11 +201,11 @@ void main() {
       expect((accounts[0]['balance'] as num).toDouble(), equals(54500.0));
       expect(accounts[0]['initial_balance_minor'], equals(5000000)); // ₹50,000 opening balance preserved!
 
-      // Account B: Expected 9,500.00 (950,000 paise)
+      // Account B: Expected 7,500.00 (750,000 paise)
       expect(accounts[1]['name'], equals('Cash'));
-      expect(accounts[1]['balance_minor'], equals(950000));
-      expect((accounts[1]['balance'] as num).toDouble(), equals(9500.0));
-      expect(accounts[1]['initial_balance_minor'], equals(5000000)); // ₹5,000 opening balance preserved!
+      expect(accounts[1]['balance_minor'], equals(750000));
+      expect((accounts[1]['balance'] as num).toDouble(), equals(7500.0));
+      expect(accounts[1]['initial_balance_minor'], equals(500000)); // ₹5,000 opening balance preserved!
 
       // Account C: Expected 15,000.00 (1,500,000 paise) — zero transactions!
       expect(accounts[2]['name'], equals('Emergency Fund'));
