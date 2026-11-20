@@ -136,66 +136,7 @@ class TransactionsNotifier extends StateNotifier<TransactionsState> {
 
   Future<void> autoPostDueRecurrences() async {
     try {
-      final txs = await _transactionDao.getAllTransactions();
-      final recurringTemplates = txs.where((tx) => tx.recurrence != 'none').toList();
-      if (recurringTemplates.isEmpty) return;
-
-      final now = DateTime.now();
-      bool balanceChanged = false;
-
-      for (var tx in recurringTemplates) {
-        DateTime occurrenceDate = tx.date;
-
-        while (true) {
-          switch (tx.recurrence) {
-            case 'daily':
-              occurrenceDate = occurrenceDate.add(const Duration(days: 1));
-              break;
-            case 'weekly':
-              occurrenceDate = occurrenceDate.add(const Duration(days: 7));
-              break;
-            case 'monthly':
-              occurrenceDate = DateTime(occurrenceDate.year, occurrenceDate.month + 1, occurrenceDate.day);
-              break;
-            case 'yearly':
-              occurrenceDate = DateTime(occurrenceDate.year + 1, occurrenceDate.month, occurrenceDate.day);
-              break;
-            default:
-              occurrenceDate = now.add(const Duration(days: 1));
-          }
-
-          final adjustedDate = RecurrenceEngine.adjustForWeekendsAndHolidays(occurrenceDate);
-          if (adjustedDate.isAfter(now)) break;
-          if (tx.recurrenceEndDate != null && adjustedDate.isAfter(tx.recurrenceEndDate!)) break;
-
-          final dateStr = adjustedDate.toIso8601String().substring(0, 10);
-          final exists = txs.any((existingTx) =>
-              existingTx.accountId == tx.accountId &&
-              existingTx.categoryId == tx.categoryId &&
-              existingTx.amount == tx.amount &&
-              existingTx.date.toIso8601String().substring(0, 10) == dateStr);
-
-          if (!exists) {
-            final newInstance = Transaction(
-              accountId: tx.accountId,
-              categoryId: tx.categoryId,
-              title: tx.title,
-              amount: tx.amount,
-              type: tx.type,
-              date: adjustedDate,
-              note: 'Auto-posted recurring instance of "${tx.title}".',
-              recurrence: 'none',
-              isPrivate: tx.isPrivate,
-              tags: tx.tags,
-              createdAt: DateTime.now(),
-            );
-            await _transactionDao.insertTransaction(newInstance);
-            balanceChanged = true;
-          }
-        }
-      }
-
-      if (balanceChanged) {
+      if (await _transactionDao.postDueRecurrences(DateTime.now())) {
         _ref.read(accountsProvider.notifier).loadAccounts();
       }
     } catch (e, stack) {
@@ -595,7 +536,12 @@ class TransactionsNotifier extends StateNotifier<TransactionsState> {
     }
     // ─────────────────────────────────────────────────────────────────────
     try {
-      await _transactionDao.updateTransaction(newTx, oldTx);
+      final updated = await _transactionDao.updateTransaction(newTx, oldTx);
+      if (updated == 0) {
+        await loadTransactions();
+        state = state.copyWith(errorMessage: 'This transaction no longer exists.');
+        return false;
+      }
       await loadTransactions();
       await AppDatabase.queueSyncAction('update', 'transaction_log', newTx.id!, newTx.toMap());
 
@@ -615,10 +561,10 @@ class TransactionsNotifier extends StateNotifier<TransactionsState> {
         children = await getSplitsForParent(tx.id!);
       }
 
-      await _transactionDao.deleteTransaction(tx);
+      final deleted = await _transactionDao.deleteTransaction(tx);
       await loadTransactions();
       
-      if (tx.id != null) {
+      if (deleted > 0 && tx.id != null) {
         await AppDatabase.queueSyncAction('delete', 'transaction_log', tx.id!, {'id': tx.id});
         for (var child in children) {
           if (child.id != null) {

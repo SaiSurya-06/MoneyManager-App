@@ -346,12 +346,21 @@ class _PartnersPageState extends ConsumerState<PartnersPage> with SingleTickerPr
     }
 
     final code = await ref.read(partnerSyncProvider.notifier).generateInviteCode(url);
-    if (code != null) {
-      setState(() {
-        _generatedInviteCode = code;
-      });
-      ToastNotification.show(context, 'Room generated successfully! Share the invitation.');
+    if (!mounted) return;
+    if (code == null) {
+      final error = ref.read(partnerSyncProvider).errorMessage;
+      ToastNotification.show(
+        context,
+        error ?? 'Could not create the room. Please try again.',
+        isError: true,
+      );
+      return;
     }
+
+    setState(() {
+      _generatedInviteCode = code;
+    });
+    ToastNotification.show(context, 'Room generated successfully! Share the invitation.');
   }
 
   Future<void> _joinRoom() async {

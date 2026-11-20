@@ -1,51 +1,24 @@
-# CI/CD Pipeline & Deployment Guide
+# Android CI and releases
 
-## 1. Overview
-The Money Manager project utilizes GitHub Actions for continuous integration and automated release artifact assembly. The pipeline configuration is located at `.github/workflows/flutter_ci.yml`.
+Pushes to supported development branches and pull requests to the main branches run dependency resolution, static analysis, tests, and a debug APK build. The debug APK uses Android's debug signing and the `com.example.money_manager.debug` application ID, so it can be installed alongside the production app. Download it from the GitHub Actions run.
 
----
+CI pins Flutter 3.27.4 with Dart 3.6.2 and enforces the checked-in lockfile. The production application ID is `com.example.money_manager`.
 
-## 2. Pipeline Stages
+## Configure production signing
 
-1. **Static Analysis & Linting**:
-   - `flutter analyze`: Verifies no syntax errors, dead code, or compiler warnings.
-2. **Automated Unit & Regression Tests**:
-   - `flutter test --coverage`: Executes all 52 unit tests, verifying precision arithmetic, database migration v13, account archiving, credit cards, quick templates, daily rollover, budget exclusion, and monthly PDF generation.
-3. **Android Build Verification**:
-   - Generates release APK / App Bundle (`.aab`) with ProGuard obfuscation and resource shrinking enabled.
+Create the GitHub Actions environment `android-release`, restrict deployments to the default branch, and enable required reviewers where supported. Configure these environment secrets in GitHub:
 
----
+- `RELEASE_KEYSTORE_BASE64`
+- `STORE_PASSWORD`
+- `KEY_PASSWORD`
+- `KEY_ALIAS`
 
-## 3. Required GitHub Secrets
+Set the environment variable `RELEASE_CERT_SHA256` to the approved signing certificate fingerprint. Obtain this fingerprint independently of the build output. Keep signing material in the environment secrets or an approved local signing setup.
 
-To sign and deploy production Android releases, configure the following secrets in GitHub Repository Settings $\to$ Secrets and Variables $\to$ Actions:
+Resolve release signing before publishing an update. Existing Android installations require a compatible signing identity or supported signing lineage. When that is unavailable, arrange a verified export and restore migration before instructing users to replace an existing install. The previously tracked signing material must be treated as exposed.
 
-| Secret Name | Description | Example / Format |
-|---|---|---|
-| `ANDROID_KEYSTORE_BASE64` | Base64-encoded Java keystore (`.jks`) | `base64 -w 0 upload-keystore.jks` |
-| `KEYSTORE_PASSWORD` | Password for the release keystore | `SecureKeystorePassword123!` |
-| `KEY_ALIAS` | Key alias in keystore | `money-manager-key` |
-| `KEY_PASSWORD` | Password for the key alias | `SecureKeyPassword123!` |
-| `PLAY_STORE_JSON_KEY` | Google Play Developer API service account key | JSON key string |
+## Publish
 
----
+In GitHub Actions, manually run **Flutter CI/CD** from the default branch with **Publish a signed APK from the default branch** enabled. The release job starts after CI succeeds and any environment approval is granted. It verifies the certificate, application ID, and version and publishes the APK and SHA-256 checksum to GitHub Releases.
 
-## 4. Manual Local Release Build
-
-```bash
-# Clean project
-flutter clean
-flutter pub get
-
-# Run test verification
-flutter test
-
-# Build production App Bundle
-flutter build appbundle --release
-
-# Build production APK
-flutter build apk --release --split-per-abi
-```
-Release binaries will be generated at:
-- `build/app/outputs/bundle/release/app-release.aab`
-- `build/app/outputs/flutter-apk/app-*-release.apk`
+Release version names come from `pubspec.yaml`. The workflow run number provides the Android version code. Check that this exceeds the version code used by the intended distribution channel when migrating to a new workflow or release channel.

@@ -31,6 +31,9 @@ if (keyPropertiesFile.exists()) {
     keyPropertiesFile.withReader("UTF-8") { reader -> keyProperties.load(reader) }
 }
 
+def releaseKeystore = System.getenv("RELEASE_KEYSTORE_PATH") ?: keyProperties["storeFile"]
+
+
 android {
     namespace = "com.example.money_manager"
     compileSdk = 34
@@ -67,17 +70,16 @@ android {
 
     signingConfigs {
         release {
-            keyAlias = keyProperties["keyAlias"]
-            keyPassword = keyProperties["keyPassword"]
-            storeFile = keyProperties["storeFile"] ? file("${keyProperties["storeFile"]}") : null
-            storePassword = keyProperties["storePassword"]
+            keyAlias = System.getenv("RELEASE_KEY_ALIAS") ?: keyProperties["keyAlias"]
+            keyPassword = System.getenv("RELEASE_KEY_PASSWORD") ?: keyProperties["keyPassword"]
+            storeFile = releaseKeystore ? file(releaseKeystore) : null
+            storePassword = System.getenv("RELEASE_STORE_PASSWORD") ?: keyProperties["storePassword"]
         }
     }
 
     buildTypes {
         debug {
-            // Use the same stable key as release so debug APKs can always update
-            signingConfig = signingConfigs.release
+            applicationIdSuffix ".debug"
         }
         release {
             signingConfig = signingConfigs.release

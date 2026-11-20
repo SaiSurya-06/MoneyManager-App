@@ -1,9 +1,129 @@
+import 'dart:convert';
+
+import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:http/http.dart' as http;
+import 'package:http/testing.dart';
+import 'package:money_manager/core/utils/share_code_encoder.dart';
+import 'package:money_manager/models/account.dart';
+import 'package:money_manager/models/transaction.dart';
+import 'package:money_manager/providers/accounts_provider.dart';
+import 'package:money_manager/providers/auth_provider.dart';
+import 'package:money_manager/providers/categories_provider.dart';
+import 'package:money_manager/providers/transactions_provider.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:money_manager/core/utils/encryption_service.dart';
 import 'package:money_manager/providers/partner_sync_provider.dart';
 
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
+
+  test('Partner host only issues an invite after uploading selected data',
+      () async {
+    final date = DateTime(2026, 1, 1);
+    final account = Account(
+      id: 1,
+      name: 'Household',
+      type: 'Bank',
+      balance: 100,
+      icon: 'account_balance',
+      color: '#4CAF50',
+      isShared: false,
+      createdAt: date,
+    );
+    final transaction = Transaction(
+      id: 1,
+      accountId: 1,
+      categoryId: 1,
+      title: 'Shared purchase',
+      amount: 20,
+      type: 'expense',
+      date: date,
+      isPrivate: false,
+      createdAt: date,
+    );
+    final accounts = _TestAccounts()..setAccount(account);
+    final container = ProviderContainer(overrides: [
+      accountsProvider.overrideWith((ref) => accounts),
+      authProvider.overrideWith((ref) => _TestAuth()),
+      categoriesProvider.overrideWith(_TestCategories.new),
+      transactionsProvider.overrideWith((ref) => _TestTransactions(ref, [
+        transaction,
+        transaction.copyWith(id: 2, title: 'Private purchase', isPrivate: true),
+      ])),
+    ]);
+    addTearDown(container.dispose);
+
+    var failUpload = true;
+    var peerSnapshot = '404';
+    final uploads = <Map<String, dynamic>>[];
+    final encryption = EncryptionService.instance;
+    await http.runWithClient(() async {
+      final host = container.read(partnerSyncProvider.notifier);
+      const endpoint = 'https://sharing.example.test/exec';
+
+      expect(await host.generateInviteCode(endpoint), isNull);
+      expect(container.read(partnerSyncProvider).isConnected, isFalse);
+
+      failUpload = false;
+      final invite = ShareCodeEncoder.decode((await host.generateInviteCode(endpoint))!);
+      final password = invite['password'] as String;
+      final salt = invite['salt'] as String;
+      final sender = '${invite['room']}__A_data';
+      Map<String, dynamic> readSnapshot(Map<String, dynamic> envelope) {
+        expect(envelope.containsKey('transactions'), isFalse);
+        final ciphertext = envelope['encrypted'] as String;
+        final signature = envelope['signature'] as String;
+        expect(encryption.verifySyncSnapshot(ciphertext, password, sender, signature), isTrue);
+        expect(encryption.verifySyncSnapshot(ciphertext, password, '${sender}other', signature), isFalse);
+        expect(encryption.verifySyncSnapshot('${ciphertext}x', password, sender, signature), isFalse);
+        return jsonDecode(encryption.decrypt(ciphertext, password, salt)) as Map<String, dynamic>;
+      }
+
+      final empty = readSnapshot(uploads.single);
+      expect(empty['accounts'], isEmpty);
+      expect(empty['transactions'], isEmpty);
+
+      accounts.setAccount(account.copyWith(isShared: true));
+      expect(await host.syncNow(), isTrue);
+      final shared = readSnapshot(uploads.last);
+      expect(shared['accounts'], hasLength(1));
+      final transactions = shared['transactions'] as List;
+      expect(transactions.single['t'], transaction.title);
+
+      final peer = jsonEncode({
+        'profile': {'name': 'Partner'},
+        'accounts': [],
+        'transactions': [],
+      });
+      final ciphertext = encryption.encrypt(peer, password, salt);
+      final peerSender = '${invite['room']}__B_data';
+      peerSnapshot = ShareCodeEncoder.encode({
+        'encrypted': ciphertext,
+        'signature': encryption.signSyncSnapshot(ciphertext, password, peerSender),
+      });
+      expect(await host.syncNow(partnerJustJoined: true), isTrue);
+      expect(container.read(partnerSyncProvider).partnerAuthenticated, isTrue);
+      expect(container.read(partnerSyncProvider).partnerName, 'Partner');
+
+      peerSnapshot = ShareCodeEncoder.encode({
+        'profile': {'name': 'Unsigned replacement'},
+        'accounts': [],
+        'transactions': [],
+      });
+      expect(await host.syncNow(), isFalse);
+      expect(container.read(partnerSyncProvider).partnerName, 'Partner');
+
+    }, () => MockClient((request) async {
+      final parameters = request.url.queryParameters;
+      if (parameters['action'] == 'test') return http.Response('ok', 200);
+      if (parameters['action'] == 'get') return http.Response(peerSnapshot, 200);
+      expect(parameters['action'], 'set_chunk');
+      if (failUpload) return http.Response('<html>Unavailable</html>', 200);
+      expect(parameters['total'], '1');
+      uploads.add(ShareCodeEncoder.decode(parameters['val']!));
+      return http.Response('assembled', 200);
+    }));
+  });
 
   group('EncryptionService Tests (Issue #2)', () {
     final service = EncryptionService.instance;
@@ -56,4 +176,41 @@ void main() {
       expect(tx.date, isNotNull);
     });
   });
+}
+
+
+class _TestAccounts extends AccountsNotifier {
+  @override
+  Future<void> loadAccounts() async {}
+
+  void setAccount(Account account) {
+    state = AccountsState(accounts: [account]);
+  }
+}
+
+class _TestAuth extends AuthNotifier {
+  @override
+  Future<void> checkProfile() async {}
+}
+
+class _TestCategories extends CategoriesNotifier {
+  _TestCategories(super.ref);
+
+  @override
+  Future<void> loadCategories() async {}
+}
+
+class _TestTransactions extends TransactionsNotifier {
+  _TestTransactions(super.ref, List<Transaction> transactions) {
+    state = TransactionsState(
+      transactions: transactions,
+      projectedTransactions: transactions,
+    );
+  }
+
+  @override
+  Future<void> loadTransactions() async {}
+
+  @override
+  Future<void> loadPresets() async {}
 }

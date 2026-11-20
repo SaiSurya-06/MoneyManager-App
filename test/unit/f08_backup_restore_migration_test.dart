@@ -1,10 +1,13 @@
 import 'dart:io';
+import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:sqflite_common_ffi/sqflite_ffi.dart' hide Transaction;
 import 'package:money_manager/core/database/database.dart';
 import 'package:money_manager/core/backup/backup_service.dart';
 
 void main() {
+  TestWidgetsFlutterBinding.ensureInitialized();
+
   setUpAll(() {
     sqfliteFfiInit();
     databaseFactory = databaseFactoryFfi;
@@ -370,6 +373,48 @@ void main() {
       await db.close();
     });
 
+    test('SQLite restore installs the staged ledger and keeps local credentials',
+        () async {
+      const pathChannel = MethodChannel('plugins.flutter.io/path_provider');
+      final messenger =
+          TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger;
+      messenger.setMockMethodCallHandler(pathChannel, (_) async => tempDir);
+      addTearDown(() async {
+        await AppDatabase.instance.close();
+        messenger.setMockMethodCallHandler(pathChannel, null);
+      });
+
+      final active = await AppDatabase.instance.database;
+      await active.insert('user_profile', {
+        'id': 7, 'name': 'Current device', 'preferred_currency': 'USD',
+        'pin_hash': 'local-verifier',
+      });
+      await AppDatabase.instance.close();
+
+      final backup = await File('$tempDir/money_manager.db')
+          .copy('$tempDir/previous-device.db');
+      final source = await databaseFactory.openDatabase(backup.path);
+      await source.update('user_profile', {
+        'id': 1, 'name': 'Previous device', 'pin_hash': 'old-verifier',
+      });
+      await source.insert('account', {
+        'name': 'Imported savings', 'type': 'Bank',
+        'balance': 50.0, 'balance_minor': 5000,
+        'initial_balance': 50.0, 'initial_balance_minor': 5000,
+        'icon': 'account_balance', 'color': '#4CAF50',
+        'created_at': '2026-01-01',
+      });
+      await source.close();
+
+      final result = await BackupService.instance.restoreFromFile(backup);
+      expect(result.success, isTrue, reason: result.errorMessage);
+      final restored = await AppDatabase.instance.database;
+      final profile = (await restored.query('user_profile')).single;
+      expect(profile['id'], 7);
+      expect(profile['pin_hash'], 'local-verifier');
+      expect((await restored.query('account')).single['balance_minor'], 5000);
+    });
+
     test('TEST-016: Backup validation detects valid SQLite, corrupt files, and newer schema versions', () async {
       // 1. Valid SQLite file
       final validPath = '$tempDir/valid.db';
@@ -390,12 +435,12 @@ void main() {
       expect(validResult.isValid, isTrue);
       expect(validResult.schemaVersion, equals(14));
 
-      // 2. Future schema version (v15) rejection
-      final futurePath = '$tempDir/future_v15.db';
+      // 2. Future schema version rejection
+      final futurePath = '$tempDir/future_schema.db';
       final futureDb = await databaseFactory.openDatabase(
         futurePath,
         options: OpenDatabaseOptions(
-          version: 15,
+          version: AppDatabase.schemaVersion + 1,
           onCreate: (db, v) async {
             await db.execute('CREATE TABLE account (id INTEGER PRIMARY KEY)');
             await db.execute('CREATE TABLE transaction_log (id INTEGER PRIMARY KEY)');
