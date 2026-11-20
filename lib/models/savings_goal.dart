@@ -1,3 +1,5 @@
+import '../core/utils/money.dart';
+
 class SavingsGoal {
   final int? id;
   final String name;
@@ -19,12 +21,17 @@ class SavingsGoal {
     required this.createdAt,
   });
 
+  int get targetAmountMinorUnits => Money.fromMajorUnits(targetAmount).minorUnits;
+  int get currentAmountMinorUnits => Money.fromMajorUnits(currentAmount).minorUnits;
+
   Map<String, dynamic> toMap() {
     return {
       'id': id,
       'name': name,
       'target_amount': targetAmount,
+      'target_amount_minor': targetAmountMinorUnits,
       'current_amount': currentAmount,
+      'current_amount_minor': currentAmountMinorUnits,
       'target_date': targetDate?.toIso8601String(),
       'color': color,
       'icon': icon,
@@ -33,11 +40,25 @@ class SavingsGoal {
   }
 
   factory SavingsGoal.fromMap(Map<String, dynamic> map) {
+    double target;
+    double current;
+    if (map['target_amount_minor'] != null) {
+      target = Money.fromMinorUnits(map['target_amount_minor'] as int).toMajorUnits();
+    } else {
+      target = Money.fromMajorUnits((map['target_amount'] as num).toDouble()).toMajorUnits();
+    }
+
+    if (map['current_amount_minor'] != null) {
+      current = Money.fromMinorUnits(map['current_amount_minor'] as int).toMajorUnits();
+    } else {
+      current = Money.fromMajorUnits((map['current_amount'] as num).toDouble()).toMajorUnits();
+    }
+
     return SavingsGoal(
       id: map['id'] as int?,
       name: map['name'] as String,
-      targetAmount: (map['target_amount'] as num).toDouble(),
-      currentAmount: (map['current_amount'] as num).toDouble(),
+      targetAmount: target,
+      currentAmount: current,
       targetDate: map['target_date'] != null ? DateTime.parse(map['target_date'] as String) : null,
       color: map['color'] as String,
       icon: map['icon'] as String,

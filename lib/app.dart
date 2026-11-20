@@ -16,6 +16,7 @@ import 'pages/budgets/budgets_page.dart';
 import 'pages/more/more_page.dart';
 import 'pages/more/user_guide_page.dart';
 import 'pages/more/chatbot_page.dart';
+import 'pages/more/monthly_reports_page.dart';
 import 'pages/settings/settings_page.dart';
 import 'pages/analytics/trend_analytics_page.dart';
 import 'pages/analytics/analytics_advanced_page.dart';
@@ -130,6 +131,11 @@ class _MoneyManagerAppState extends ConsumerState<MoneyManagerApp> {
           path: '/budget-blueprint',
           parentNavigatorKey: _rootNavigatorKey,
           builder: (context, state) => const BudgetsPage(),
+        ),
+        GoRoute(
+          path: '/monthly-reports',
+          parentNavigatorKey: _rootNavigatorKey,
+          builder: (context, state) => const MonthlyReportsPage(),
         ),
         
         // Shell navigation for main pages

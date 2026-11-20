@@ -10,6 +10,7 @@ import '../../providers/transaction_templates_provider.dart';
 import '../../models/category.dart';
 import '../../models/transaction.dart';
 import '../../models/account.dart';
+import '../../models/transaction_template.dart';
 import 'transaction_list_item.dart';
 import 'transaction_form.dart';
 import 'bulk_transaction_screen.dart';
@@ -114,6 +115,9 @@ class _TransactionsPageState extends ConsumerState<TransactionsPage> {
     final templatesState = ref.watch(transactionTemplatesProvider);
     if (templatesState.templates.isEmpty) return const SizedBox.shrink();
 
+    final accounts = ref.watch(accountsProvider).accounts;
+    final accountMap = {for (var a in accounts) a.id: a};
+
     return Padding(
       padding: const EdgeInsets.symmetric(horizontal: 16.0, vertical: 8.0),
       child: Column(
@@ -122,35 +126,44 @@ class _TransactionsPageState extends ConsumerState<TransactionsPage> {
           Text('Quick-Add Templates', style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: isDark ? Colors.white70 : Colors.black87)),
           const SizedBox(height: 8),
           SizedBox(
-            height: 54,
+            height: 94,
             child: ListView.builder(
               scrollDirection: Axis.horizontal,
               itemCount: templatesState.templates.length,
               itemBuilder: (context, idx) {
                 final tmpl = templatesState.templates[idx];
                 final cat = _categoryMap[tmpl.categoryId] ?? {
-                  'name': 'Other',
+                  'name': 'Uncategorized',
                   'color': '757575',
                   'icon': 'category'
                 };
                 final hex = '0xFF${(cat['color'] as String).replaceAll("#", "")}';
                 final color = Color(int.tryParse(hex) ?? 0xFF757575);
 
+                final acc = accountMap[tmpl.accountId];
+                final isAccountMissing = acc == null;
+                final isAccountArchived = acc?.isArchived ?? false;
+                final accountName = acc?.name ?? 'Missing Account';
+
+                final Color typeColor;
+                if (tmpl.type == 'income') {
+                  typeColor = const Color(0xFF43A047);
+                } else if (tmpl.type == 'transfer') {
+                  typeColor = Colors.blueAccent;
+                } else {
+                  typeColor = const Color(0xFFE53935);
+                }
+
                 return GestureDetector(
-                  onTap: () async {
-                    final success = await ref.read(transactionsProvider.notifier).addTransaction(
-                      accountId: tmpl.accountId,
-                      categoryId: tmpl.categoryId,
-                      title: tmpl.title,
-                      amount: tmpl.amount,
-                      type: tmpl.type,
-                      date: DateTime.now(),
-                      recurrence: 'none',
-                      isPrivate: false,
-                    );
-                    if (success && mounted) {
-                      ToastNotification.show(context, 'Logged: ${tmpl.title} (${CurrencyFormatter.format(tmpl.amount, currency)})');
+                  onTap: () {
+                    if (isAccountMissing || isAccountArchived) {
+                      ToastNotification.show(
+                        context,
+                        'Account no longer available — please select an account',
+                        isWarning: true,
+                      );
                     }
+                    _openTransactionFormWithTemplate(context, tmpl, isAccountMissing || isAccountArchived);
                   },
                   onLongPress: () {
                     showDialog(
@@ -164,7 +177,7 @@ class _TransactionsPageState extends ConsumerState<TransactionsPage> {
                             style: ElevatedButton.styleFrom(backgroundColor: const Color(0xFFE53935), foregroundColor: Colors.white),
                             onPressed: () async {
                               await ref.read(transactionTemplatesProvider.notifier).deleteTemplate(tmpl.id!);
-                              Navigator.pop(context);
+                              if (context.mounted) Navigator.pop(context);
                             },
                             child: const Text('Delete'),
                           ),
@@ -173,23 +186,138 @@ class _TransactionsPageState extends ConsumerState<TransactionsPage> {
                     );
                   },
                   child: Container(
-                    margin: const EdgeInsets.only(right: 10),
+                    width: 220,
+                    margin: const EdgeInsets.only(right: 12),
                     padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
                     decoration: BoxDecoration(
-                      color: color.withValues(alpha: 0.12),
+                      color: color.withValues(alpha: 0.1),
                       borderRadius: BorderRadius.circular(16),
-                      border: Border.all(color: color.withValues(alpha: 0.3)),
+                      border: Border.all(
+                        color: isAccountMissing || isAccountArchived
+                            ? Colors.amber.withValues(alpha: 0.7)
+                            : color.withValues(alpha: 0.3),
+                      ),
                     ),
-                    child: Row(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
                       children: [
-                        Icon(Icons.flash_on, color: color, size: 16),
-                        const SizedBox(width: 6),
-                        Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          mainAxisAlignment: MainAxisAlignment.center,
+                        // Row 1: Type badge & Quick Log button
+                        Row(
+                          mainAxisAlignment: MainAxisAlignment.spaceBetween,
                           children: [
-                            Text(tmpl.title, style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 11)),
-                            Text(CurrencyFormatter.format(tmpl.amount, currency), style: TextStyle(color: color, fontSize: 9, fontWeight: FontWeight.bold)),
+                            Container(
+                              padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                              decoration: BoxDecoration(
+                                color: typeColor.withValues(alpha: 0.15),
+                                borderRadius: BorderRadius.circular(4),
+                              ),
+                              child: Text(
+                                tmpl.type.toUpperCase(),
+                                style: TextStyle(color: typeColor, fontSize: 8.5, fontWeight: FontWeight.bold),
+                              ),
+                            ),
+                            InkWell(
+                              onTap: () async {
+                                if (isAccountMissing || isAccountArchived) {
+                                  ToastNotification.show(
+                                    context,
+                                    'Account no longer available — please select an account',
+                                    isWarning: true,
+                                  );
+                                  _openTransactionFormWithTemplate(context, tmpl, true);
+                                  return;
+                                }
+                                final success = await ref.read(transactionsProvider.notifier).addTransaction(
+                                  accountId: tmpl.accountId,
+                                  categoryId: tmpl.categoryId,
+                                  title: tmpl.title,
+                                  amount: tmpl.amount,
+                                  type: tmpl.type,
+                                  date: DateTime.now(),
+                                  recurrence: 'none',
+                                  isPrivate: false,
+                                );
+                                if (success && mounted) {
+                                  ToastNotification.show(
+                                    context,
+                                    'Quick Logged: ${tmpl.title} (${CurrencyFormatter.format(tmpl.amount, currency)}) to $accountName',
+                                  );
+                                }
+                              },
+                              child: Container(
+                                padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                                decoration: BoxDecoration(
+                                  color: const Color(0xFFE53935).withValues(alpha: 0.15),
+                                  borderRadius: BorderRadius.circular(4),
+                                ),
+                                child: const Row(
+                                  mainAxisSize: MainAxisSize.min,
+                                  children: [
+                                    Icon(Icons.bolt, size: 10, color: Color(0xFFE53935)),
+                                    SizedBox(width: 2),
+                                    Text('Quick Log', style: TextStyle(color: Color(0xFFE53935), fontSize: 8.5, fontWeight: FontWeight.bold)),
+                                  ],
+                                ),
+                              ),
+                            ),
+                          ],
+                        ),
+                        // Row 2: Title and Amount
+                        Row(
+                          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                          children: [
+                            Expanded(
+                              child: Text(
+                                tmpl.title,
+                                maxLines: 1,
+                                overflow: TextOverflow.ellipsis,
+                                style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 12),
+                              ),
+                            ),
+                            const SizedBox(width: 4),
+                            Text(
+                              CurrencyFormatter.format(tmpl.amount, currency),
+                              style: TextStyle(color: color, fontSize: 11, fontWeight: FontWeight.bold),
+                            ),
+                          ],
+                        ),
+                        // Row 3: Category and Account Name
+                        Row(
+                          children: [
+                            Icon(Icons.category_outlined, size: 10, color: color),
+                            const SizedBox(width: 3),
+                            Flexible(
+                              child: Text(
+                                cat['name'] as String,
+                                maxLines: 1,
+                                overflow: TextOverflow.ellipsis,
+                                style: TextStyle(fontSize: 9.5, color: isDark ? Colors.white60 : Colors.black54),
+                              ),
+                            ),
+                            const SizedBox(width: 4),
+                            const Text('•', style: TextStyle(fontSize: 9.5, color: Colors.grey)),
+                            const SizedBox(width: 4),
+                            Icon(
+                              Icons.account_balance_wallet_outlined,
+                              size: 10,
+                              color: isAccountMissing || isAccountArchived ? Colors.amber : Colors.grey,
+                            ),
+                            const SizedBox(width: 3),
+                            Flexible(
+                              child: Text(
+                                isAccountMissing
+                                    ? 'Missing Account'
+                                    : (isAccountArchived ? '$accountName (Archived)' : accountName),
+                                maxLines: 1,
+                                overflow: TextOverflow.ellipsis,
+                                style: TextStyle(
+                                  fontSize: 9.5,
+                                  color: isAccountMissing || isAccountArchived ? Colors.amber : (isDark ? Colors.white60 : Colors.black54),
+                                  fontWeight: isAccountMissing || isAccountArchived ? FontWeight.bold : FontWeight.normal,
+                                ),
+                              ),
+                            ),
                           ],
                         ),
                       ],
@@ -405,6 +533,22 @@ class _TransactionsPageState extends ConsumerState<TransactionsPage> {
       isScrollControlled: true,
       backgroundColor: Colors.transparent,
       builder: (context) => TransactionForm(transaction: tx),
+    );
+  }
+
+  void _openTransactionFormWithTemplate(BuildContext context, TransactionTemplate tmpl, bool isAccountUnavailable) {
+    showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.transparent,
+      builder: (context) => TransactionForm(
+        initialTitle: tmpl.title,
+        initialAmount: tmpl.amount,
+        initialType: tmpl.type,
+        initialAccountId: isAccountUnavailable ? null : tmpl.accountId,
+        initialCategoryId: tmpl.categoryId,
+        initialDate: DateTime.now(),
+      ),
     );
   }
 

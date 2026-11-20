@@ -237,6 +237,7 @@ class TransactionsNotifier extends StateNotifier<TransactionsState> {
     required bool isPrivate,
     String tags = '',
     int? transferToAccountId,
+    bool isBudgetIncluded = true,
   }) async {
     // ── Input validation ──────────────────────────────────────────────────
     if (title.trim().isEmpty) {
@@ -272,6 +273,7 @@ class TransactionsNotifier extends StateNotifier<TransactionsState> {
         tags: tags,
         transferToAccountId: transferToAccountId,
         createdAt: DateTime.now(),
+        isBudgetIncluded: isBudgetIncluded,
       );
 
       final id = await _transactionDao.insertTransaction(tx);
@@ -309,13 +311,15 @@ class TransactionsNotifier extends StateNotifier<TransactionsState> {
         }
       }
 
-      // Check budget threshold alerts immediately
-      await _ref.read(budgetsProvider.notifier).checkBudgetThreshold(
-        categoryId: categoryId,
-        txAmount: amount,
-        txDate: date,
-        txType: type,
-      );
+      // Check budget threshold alerts immediately if expense is budget-eligible
+      if (type == 'expense' && isBudgetIncluded) {
+        await _ref.read(budgetsProvider.notifier).checkBudgetThreshold(
+          categoryId: categoryId,
+          txAmount: amount,
+          txDate: date,
+          txType: type,
+        );
+      }
 
       // Refresh accounts provider as balances changed!
       _ref.read(accountsProvider.notifier).loadAccounts();
@@ -340,6 +344,7 @@ class TransactionsNotifier extends StateNotifier<TransactionsState> {
     String tags = '',
     int? transferToAccountId,
     int? subcategoryId,
+    bool isBudgetIncluded = true,
   }) async {
     if (title.trim().isEmpty) {
       state = state.copyWith(errorMessage: 'Transaction title cannot be empty.');
@@ -374,6 +379,7 @@ class TransactionsNotifier extends StateNotifier<TransactionsState> {
         transferToAccountId: transferToAccountId,
         createdAt: DateTime.now(),
         subcategoryId: subcategoryId,
+        isBudgetIncluded: isBudgetIncluded,
       );
 
       final id = await _transactionDao.insertTransaction(tx);
@@ -410,12 +416,14 @@ class TransactionsNotifier extends StateNotifier<TransactionsState> {
         }
       }
 
-      await _ref.read(budgetsProvider.notifier).checkBudgetThreshold(
-        categoryId: categoryId,
-        txAmount: amount,
-        txDate: date,
-        txType: type,
-      );
+      if (type == 'expense' && isBudgetIncluded) {
+        await _ref.read(budgetsProvider.notifier).checkBudgetThreshold(
+          categoryId: categoryId,
+          txAmount: amount,
+          txDate: date,
+          txType: type,
+        );
+      }
 
       _ref.read(accountsProvider.notifier).loadAccounts();
       return id;

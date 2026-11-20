@@ -1,4 +1,5 @@
 import 'package:freezed_annotation/freezed_annotation.dart';
+import '../core/utils/money.dart';
 
 part 'transaction.freezed.dart';
 part 'transaction.g.dart';
@@ -24,24 +25,37 @@ class Transaction with _$Transaction {
     @JsonKey(name: 'transfer_to_account_id') int? transferToAccountId,
     @JsonKey(name: 'created_at') required DateTime createdAt,
     @JsonKey(name: 'subcategory_id') int? subcategoryId,
+    @JsonKey(name: 'is_budget_included') @Default(true) bool isBudgetIncluded,
   }) = _Transaction;
+
+  int get amountMinorUnits => Money.fromMajorUnits(amount).minorUnits;
 
   factory Transaction.fromJson(Map<String, dynamic> json) => _$TransactionFromJson(json);
 
   Map<String, dynamic> toMap() {
     final map = toJson();
     map['is_private'] = isPrivate ? 1 : 0;
+    map['is_budget_included'] = isBudgetIncluded ? 1 : 0;
     map['date'] = date.toIso8601String().substring(0, 10);
     if (recurrenceEndDate != null) {
       map['recurrence_end_date'] = recurrenceEndDate!.toIso8601String().substring(0, 10);
     }
+    map['amount_minor'] = amountMinorUnits;
     return map;
   }
 
   factory Transaction.fromMap(Map<String, dynamic> map) {
     final adjustedMap = Map<String, dynamic>.from(map);
     adjustedMap['is_private'] = (map['is_private'] as int) == 1;
-    adjustedMap['amount'] = ((map['amount'] as num).toDouble() * 100.0).roundToDouble() / 100.0;
+    adjustedMap['is_budget_included'] = map['is_budget_included'] != null
+        ? (map['is_budget_included'] as int) == 1
+        : true;
+
+    if (map['amount_minor'] != null) {
+      adjustedMap['amount'] = Money.fromMinorUnits(map['amount_minor'] as int).toMajorUnits();
+    } else {
+      adjustedMap['amount'] = Money.fromMajorUnits((map['amount'] as num).toDouble()).toMajorUnits();
+    }
     return Transaction.fromJson(adjustedMap);
   }
 

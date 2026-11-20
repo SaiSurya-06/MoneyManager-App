@@ -87,6 +87,25 @@ class AccountCard extends StatelessWidget {
                     ),
                     Row(
                       children: [
+                        if (account.isArchived) ...[
+                          Container(
+                            padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 2),
+                            margin: const EdgeInsets.only(right: 6),
+                            decoration: BoxDecoration(
+                              color: const Color(0xFFD4AF37).withValues(alpha: 0.2),
+                              borderRadius: BorderRadius.circular(4),
+                            ),
+                            child: const Text(
+                              'ARCHIVED',
+                              style: TextStyle(
+                                fontSize: 8,
+                                fontWeight: FontWeight.bold,
+                                color: Color(0xFFD4AF37),
+                                letterSpacing: 0.8,
+                              ),
+                            ),
+                          ),
+                        ],
                         Text(
                           account.type.toUpperCase(),
                           style: const TextStyle(

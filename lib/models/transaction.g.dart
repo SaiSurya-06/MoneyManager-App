@@ -26,6 +26,7 @@ _$TransactionImpl _$$TransactionImplFromJson(Map<String, dynamic> json) =>
       transferToAccountId: (json['transfer_to_account_id'] as num?)?.toInt(),
       createdAt: DateTime.parse(json['created_at'] as String),
       subcategoryId: (json['subcategory_id'] as num?)?.toInt(),
+      isBudgetIncluded: json['is_budget_included'] as bool? ?? true,
     );
 
 Map<String, dynamic> _$$TransactionImplToJson(_$TransactionImpl instance) =>
@@ -46,4 +47,5 @@ Map<String, dynamic> _$$TransactionImplToJson(_$TransactionImpl instance) =>
       'transfer_to_account_id': instance.transferToAccountId,
       'created_at': instance.createdAt.toIso8601String(),
       'subcategory_id': instance.subcategoryId,
+      'is_budget_included': instance.isBudgetIncluded,
     };

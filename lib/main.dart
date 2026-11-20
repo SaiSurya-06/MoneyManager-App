@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'app.dart';
 import 'core/notifications/notification_service.dart';
+import 'core/services/monthly_pdf_report_service.dart';
 import 'widgets/common/premium_error_widget.dart';
 
 void main() async {
@@ -30,6 +31,9 @@ void main() async {
     await NotificationService.instance.initialize();
     await NotificationService.instance.scheduleWeeklyBackupReminder();
     await NotificationService.instance.scheduleMonthEndBudgetReminder();
+
+    // Check and generate previous month PDF reports if missing (catch-up / fallback)
+    unawaited(MonthlyPdfReportService.instance.checkAndGeneratePreviousMonthReports());
 
     runApp(
       const ProviderScope(

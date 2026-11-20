@@ -653,12 +653,12 @@ class _SettingsPageState extends ConsumerState<SettingsPage> {
 
   Future<void> _performRestore(BuildContext context, String format, String destination) async {
     Navigator.pop(context); // Close bottom sheet
-    ToastNotification.show(context, 'Starting restore...');
+    ToastNotification.show(context, 'Starting restore and validating database...');
 
     try {
-      bool success = false;
+      RestoreResult result;
       if (destination == 'local') {
-        success = await BackupService.instance.restoreFromLocal(format);
+        result = await BackupService.instance.restoreFromLocalWithResult(format);
       } else {
         if (!BackupService.instance.isSignedIn && !BackupService.instance.isSimulatedMode) {
           final signedIn = await BackupService.instance.signIn();
@@ -669,11 +669,11 @@ class _SettingsPageState extends ConsumerState<SettingsPage> {
             return;
           }
         }
-        success = await BackupService.instance.restoreFromGoogleDrive(format);
+        result = await BackupService.instance.restoreFromGoogleDriveWithResult(format);
       }
 
       if (mounted) {
-        if (success) {
+        if (result.success) {
           ref.read(accountsProvider.notifier).loadAccounts();
           ref.read(transactionsProvider.notifier).loadTransactions();
           ref.read(authProvider.notifier).checkProfile();
@@ -687,10 +687,16 @@ class _SettingsPageState extends ConsumerState<SettingsPage> {
             context,
             BackupService.instance.isSimulatedMode && destination == 'drive'
                 ? 'Restore simulated successfully (Sandbox Mode).'
-                : 'Database restored successfully!'
+                : 'Restored successfully! ${result.restoredAccounts} accounts & ${result.restoredTransactions} transactions reconciled.',
           );
         } else {
-          ToastNotification.show(context, 'Restore failed. No backup file found.', isError: true);
+          ToastNotification.show(
+            context,
+            result.errorMessage != null
+                ? 'Restore failed: ${result.errorMessage}'
+                : 'Restore failed: Unable to validate or read backup file.',
+            isError: true,
+          );
         }
       }
     } catch (e) {

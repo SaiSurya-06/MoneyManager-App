@@ -8,6 +8,7 @@ import '../../../core/utils/currency_formatter.dart';
 import '../../../core/utils/pdf_report_helper.dart';
 import '../../../models/category.dart';
 import '../../../models/budget.dart';
+import 'daily_spending_calendar.dart';
 
 class TrackTab extends ConsumerStatefulWidget {
   const TrackTab({super.key});
@@ -180,6 +181,11 @@ class _TrackTabState extends ConsumerState<TrackTab> {
               ),
             ),
           ),
+          const SizedBox(height: 24),
+
+          // Daily Spending Calendar with Rollover
+          const DailySpendingCalendar(),
+
           const SizedBox(height: 24),
 
           // 2. Budget vs Actual Header
