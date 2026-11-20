@@ -38,9 +38,11 @@ jobs:
           flutter-version: ${{ env.FLUTTER_VERSION }}
           channel: stable
           cache: true
-      - name: Install Android and SQLite build dependencies
+      - uses: android-actions/setup-android@9fc6c4e9069bf8d3d10b2204b1fb8f6ef7065407 # v3
+        with:
+          packages: platform-tools platforms;android-34 build-tools;34.0.0 ndk;27.0.12077973
+      - name: Install SQLite test dependencies
         run: |
-          sdkmanager "platforms;android-34" "build-tools;${ANDROID_BUILD_TOOLS}" "ndk;27.0.12077973"
           sudo apt-get update
           sudo apt-get install -y libsqlite3-dev
       - run: flutter pub get --enforce-lockfile
@@ -73,8 +75,9 @@ jobs:
           flutter-version: ${{ env.FLUTTER_VERSION }}
           channel: stable
           cache: true
-      - name: Install Android build dependencies
-        run: sdkmanager "platforms;android-34" "build-tools;${ANDROID_BUILD_TOOLS}" "ndk;27.0.12077973"
+      - uses: android-actions/setup-android@9fc6c4e9069bf8d3d10b2204b1fb8f6ef7065407 # v3
+        with:
+          packages: platform-tools platforms;android-34 build-tools;34.0.0 ndk;27.0.12077973
       - run: flutter pub get --enforce-lockfile
       - name: Build and verify signed APK
         id: apk
