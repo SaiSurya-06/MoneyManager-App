@@ -51,6 +51,30 @@ class EncryptionService {
     return base64Url.encode(combinedBytes);
   }
 
+  /// Authenticates the ciphertext and binds it to the sending room and slot.
+  String signSyncSnapshot(String ciphertext, String secret, String sender) {
+    final key = Hmac(sha256, utf8.encode(secret))
+        .convert(utf8.encode('MoneyManager partner snapshot authentication v1'))
+        .bytes;
+    final bytes = utf8.encode(jsonEncode([sender, ciphertext]));
+    return Hmac(sha256, key).convert(bytes).toString();
+  }
+
+  bool verifySyncSnapshot(
+    String ciphertext,
+    String secret,
+    String sender,
+    String signature,
+  ) {
+    final expected = signSyncSnapshot(ciphertext, secret, sender);
+    if (signature.length != expected.length) return false;
+    var difference = 0;
+    for (var i = 0; i < expected.length; i++) {
+      difference |= signature.codeUnitAt(i) ^ expected.codeUnitAt(i);
+    }
+    return difference == 0;
+  }
+
   /// Decrypts a base64url-encoded ciphertext. Tries PBKDF2 key first, falling back to legacy derivation.
   String decrypt(String ciphertextBase64, String password, String salt) {
     try {

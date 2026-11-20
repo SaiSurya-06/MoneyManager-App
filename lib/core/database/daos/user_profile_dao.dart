@@ -4,10 +4,17 @@ import '../../../models/user_profile.dart';
 class UserProfileDao {
   final AppDatabase _dbProvider = AppDatabase.instance;
 
-  Future<int> insertProfile(UserProfile profile) async {
+  Future<int> insertProfile(
+    UserProfile profile, {
+    required Future<void> Function(int id) saveCredentials,
+  }) async {
     try {
       final db = await _dbProvider.database;
-      return await db.insert('user_profile', profile.toMap());
+      return await db.transaction((txn) async {
+        final id = await txn.insert('user_profile', profile.toMap());
+        await saveCredentials(id);
+        return id;
+      });
     } catch (e) {
       throw Exception('UserProfileDao.insertProfile failed: $e');
     }

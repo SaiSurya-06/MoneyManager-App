@@ -6,8 +6,10 @@ import 'package:path/path.dart';
 import 'package:path_provider/path_provider.dart';
 
 class AppDatabase {
+  static const schemaVersion = 15;
   static final AppDatabase instance = AppDatabase._init();
   static Database? _database;
+  Completer<void>? _replacement;
 
   static void setMockDatabase(Database db) {
     _database = db;
@@ -24,6 +26,8 @@ class AppDatabase {
   AppDatabase._init();
 
   Future<Database> get database async {
+    final replacement = _replacement;
+    if (replacement != null) await replacement.future;
     if (_database != null && _database!.isOpen) return _database!;
 
     // Guard against concurrent calls racing to open the DB.
@@ -60,7 +64,7 @@ class AppDatabase {
 
     final db = await openDatabase(
       path,
-      version: 14,
+      version: schemaVersion,
       onCreate: _createDB,
       onUpgrade: _upgradeDB,
     );
@@ -283,6 +287,18 @@ class AppDatabase {
     if (oldVersion < 14) {
       await _migrateToV14(db);
     }
+    if (oldVersion < 15 && newVersion >= 15) {
+      await db.execute('ALTER TABLE transaction_log ADD COLUMN recurrence_template_id INTEGER');
+      await db.execute('ALTER TABLE transaction_log ADD COLUMN recurrence_scheduled_date TEXT');
+      await _createRecurrenceIndex(db);
+    }
+  }
+
+  Future<void> _createRecurrenceIndex(Database db) async {
+    await db.execute(
+      'CREATE UNIQUE INDEX transaction_recurrence_occurrence '
+      'ON transaction_log(recurrence_template_id, recurrence_scheduled_date)',
+    );
   }
 
   Future<void> _migrateToV13(Database db) async {
@@ -613,7 +629,7 @@ class AppDatabase {
     return null;
   }
 
-  Future<void> recalculateAllBalances(Database db) async {
+  Future<void> recalculateAllBalances(DatabaseExecutor db) async {
     final accounts = await db.query('account');
     final allTxs = await db.query('transaction_log');
     
@@ -746,11 +762,15 @@ class AppDatabase {
         created_at TEXT NOT NULL,
         subcategory_id INTEGER,
         is_budget_included INTEGER NOT NULL DEFAULT 1,
+        recurrence_template_id INTEGER,
+        recurrence_scheduled_date TEXT,
         FOREIGN KEY (account_id) REFERENCES account (id) ON DELETE CASCADE,
         FOREIGN KEY (category_id) REFERENCES category (id) ON DELETE CASCADE,
         FOREIGN KEY (subcategory_id) REFERENCES category (id) ON DELETE SET NULL
       )
     ''');
+
+    await _createRecurrenceIndex(db);
 
     // 5. Budget Table
     await db.execute('''
@@ -967,6 +987,26 @@ class AppDatabase {
 
     for (var cat in categories) {
       await db.insert('category', cat);
+    }
+  }
+
+  Future<void> replaceDatabaseFile(Future<void> Function() replace) async {
+    final active = await database;
+    if (_replacement != null) {
+      throw StateError('Another database restore is already replacing the file.');
+    }
+    final replacement = Completer<void>();
+    _replacement = replacement;
+    try {
+      final checkpoint = await active.rawQuery('PRAGMA wal_checkpoint(TRUNCATE)');
+      if (checkpoint.single['busy'] != 0) {
+        throw StateError('The active database is busy. Try restoring again.');
+      }
+      await close();
+      await replace();
+    } finally {
+      _replacement = null;
+      replacement.complete();
     }
   }
 

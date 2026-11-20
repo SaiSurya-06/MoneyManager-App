@@ -101,7 +101,10 @@ class AuthNotifier extends StateNotifier<AuthState> {
           isBiometricAvailable: isBioAvailable,
         );
       } else {
-        final activeProfile = state.profile ?? (profiles.length == 1 ? profiles.first : null);
+        final selectedId = state.profile?.id;
+        final selected = profiles.where((profile) => profile.id == selectedId);
+        final activeProfile =
+            selected.isNotEmpty ? selected.first : (profiles.length == 1 ? profiles.first : null);
         state = AuthState(
           status: AuthStatus.unauthenticated,
           profile: activeProfile,
@@ -178,14 +181,14 @@ class AuthNotifier extends StateNotifier<AuthState> {
         reminderTime: AppConstants.defaultReminderTime,
       );
 
-      final id = await _profileDao.insertProfile(profile);
-      final createdProfile = profile.copyWith(id: id);
-      
-      // Persist salt in secure storage
-      await _secureStorage.write(
-        key: '${AppConstants.securePinSaltKey}_$id',
-        value: salt,
+      final id = await _profileDao.insertProfile(
+        profile,
+        saveCredentials: (id) => _secureStorage.write(
+          key: '${AppConstants.securePinSaltKey}_$id',
+          value: salt,
+        ),
       );
+      final createdProfile = profile.copyWith(id: id);
 
       await checkProfile();
 
