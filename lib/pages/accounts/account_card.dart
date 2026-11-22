@@ -2,7 +2,6 @@ import 'package:flutter/material.dart';
 
 import '../../core/utils/currency_formatter.dart';
 import '../../models/account.dart';
-import '../../widgets/common/glassmorphism_card.dart';
 
 class AccountCard extends StatelessWidget {
   final Account account;
@@ -65,144 +64,115 @@ class AccountCard extends StatelessWidget {
         ? limit - account.balance.abs()
         : account.balance;
 
-    return GlassmorphismCard(
-      padding: EdgeInsets.zero,
-      blur: 0,
-      color: Color.alphaBlend(
-        accountColor.withValues(alpha: isDark ? 0.13 : 0.08),
-        colors.surface,
-      ),
-      borderColor: accountColor.withValues(alpha: isDark ? 0.34 : 0.26),
-      child: Material(
-        color: Colors.transparent,
-        child: InkWell(
-          onTap: onTap,
-          onLongPress: onLongPress,
-          child: Padding(
-            padding: const EdgeInsets.all(14),
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Row(
-                  children: [
-                    DecoratedBox(
-                      decoration: BoxDecoration(
-                        color: accountColor.withValues(alpha: 0.16),
-                        shape: BoxShape.circle,
-                      ),
-                      child: Padding(
-                        padding: const EdgeInsets.all(8),
-                        child: Icon(_getIconData(account.icon), size: 20, color: accent),
-                      ),
-                    ),
-                    const SizedBox(width: 10),
-                    Expanded(
-                      child: Text(
-                        account.type,
-                        textAlign: TextAlign.end,
-                        style: detailStyle?.copyWith(fontWeight: FontWeight.w600),
-                      ),
-                    ),
-                  ],
-                ),
-                const SizedBox(height: 12),
-                Text(
-                  account.name,
-                  style: theme.textTheme.titleSmall?.copyWith(
-                    fontWeight: FontWeight.w700,
-                    color: colors.onSurface,
-                  ),
-                ),
-                if (account.isArchived)
-                  Text('Archived', style: detailStyle),
-                const SizedBox(height: 4),
-                if (showsCreditDetails)
-                  Text('Remaining limit', style: detailStyle),
-                Text(
-                  CurrencyFormatter.format(amount, currency),
-                  style: amountStyle?.copyWith(
-                    color: amount < 0 ? colors.error : colors.onSurface,
-                  ),
-                ),
-                if (showsCreditDetails) ...[
-                  const SizedBox(height: 10),
-                  Text(
-                    'Pending payment: ${CurrencyFormatter.format(account.pendingPayment < 0 ? 0.0 : account.pendingPayment, currency)}',
-                    style: detailStyle?.copyWith(
-                      color: account.pendingPayment > 0 ? colors.error : null,
-                      fontWeight: FontWeight.w600,
-                    ),
-                  ),
-                  const SizedBox(height: 8),
-                  AnimatedCreditProgressBar(
-                    ratio: utilization.clamp(0.0, 1.0),
-                    activeColor: usedColor,
-                  ),
-                  const SizedBox(height: 6),
-                  Text(
-                    'Utilized: ${(utilization * 100).toStringAsFixed(0)}% of ${CurrencyFormatter.format(limit, currency)}',
-                    style: detailStyle,
-                  ),
-                ],
-              ],
-            ),
-          ),
-        ),
+    final amountText = Text(
+      CurrencyFormatter.format(amount, currency),
+      style: amountStyle?.copyWith(
+        color: amount < 0 ? colors.error : colors.onSurface,
       ),
     );
-  }
-}
+    final details = Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(
+          account.name,
+          style: theme.textTheme.titleMedium?.copyWith(
+            fontWeight: FontWeight.w700,
+          ),
+        ),
+        const SizedBox(height: 2),
+        Text(
+          account.isArchived ? '${account.type} · Archived' : account.type,
+          style: detailStyle,
+        ),
+      ],
+    );
 
-/// Lays out only visible rows and lets each row grow to fit its tallest card.
-class SliverAccountGrid extends StatelessWidget {
-  const SliverAccountGrid({
-    super.key,
-    required this.itemCount,
-    required this.itemBuilder,
-  });
-
-  final int itemCount;
-  final IndexedWidgetBuilder itemBuilder;
-
-  @override
-  Widget build(BuildContext context) {
-    return SliverLayoutBuilder(
-      builder: (context, constraints) {
-        const gap = 12.0;
-        final enlargedText = MediaQuery.textScalerOf(context).scale(16) > 22;
-        final columns = enlargedText || constraints.crossAxisExtent < 344
-            ? 1
-            : constraints.crossAxisExtent >= 720
-                ? 3
-                : 2;
-        return SliverList(
-          delegate: SliverChildBuilderDelegate(
-            (context, rowIndex) {
-              final first = rowIndex * columns;
-              return Padding(
-                padding: EdgeInsets.only(top: rowIndex == 0 ? 0 : gap),
-                child: IntrinsicHeight(
-                  child: Row(
-                    crossAxisAlignment: CrossAxisAlignment.stretch,
+    return Material(
+      color: colors.surfaceContainerLow,
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(16),
+        side: BorderSide(color: colors.outlineVariant.withValues(alpha: 0.7)),
+      ),
+      clipBehavior: Clip.antiAlias,
+      child: InkWell(
+        onTap: onTap,
+        onLongPress: onLongPress,
+        child: Padding(
+          padding: const EdgeInsets.all(16),
+          child: LayoutBuilder(
+            builder: (context, constraints) {
+              final stacked = constraints.maxWidth < 320 ||
+                  MediaQuery.textScalerOf(context).scale(16) > 21;
+              final amountBlock = Column(
+                crossAxisAlignment:
+                    stacked ? CrossAxisAlignment.start : CrossAxisAlignment.end,
+                children: [
+                  if (showsCreditDetails) Text('Remaining limit', style: detailStyle),
+                  amountText,
+                ],
+              );
+              return Column(
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  Row(
+                    crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      for (var column = 0; column < columns; column++) ...[
-                        if (column > 0) const SizedBox(width: gap),
-                        Expanded(
-                          child: first + column < itemCount
-                              ? itemBuilder(context, first + column)
-                              : const SizedBox.shrink(),
+                      Container(
+                        width: 40,
+                        height: 40,
+                        decoration: BoxDecoration(
+                          color: accountColor.withValues(alpha: 0.14),
+                          borderRadius: BorderRadius.circular(12),
                         ),
+                        child: Icon(_getIconData(account.icon), size: 20, color: accent),
+                      ),
+                      const SizedBox(width: 12),
+                      Expanded(
+                        child: stacked
+                            ? Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  details,
+                                  const SizedBox(height: 6),
+                                  amountBlock,
+                                ],
+                              )
+                            : details,
+                      ),
+                      if (!stacked) ...[
+                        const SizedBox(width: 12),
+                        Flexible(child: amountBlock),
                       ],
                     ],
                   ),
-                ),
+                  if (showsCreditDetails) ...[
+                    const SizedBox(height: 10),
+                    Divider(height: 1, color: colors.outlineVariant),
+                    const SizedBox(height: 10),
+                    Text(
+                      'Pending payment: ${CurrencyFormatter.format(account.pendingPayment, currency)}',
+                      style: detailStyle?.copyWith(
+                        color: account.pendingPayment > 0 ? colors.error : null,
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
+                    const SizedBox(height: 6),
+                    Text(
+                      'Utilized: ${(utilization * 100).toStringAsFixed(0)}% of ${CurrencyFormatter.format(limit, currency)}',
+                      style: detailStyle,
+                    ),
+                    const SizedBox(height: 8),
+                    AnimatedCreditProgressBar(
+                      ratio: utilization.clamp(0.0, 1.0),
+                      activeColor: usedColor,
+                    ),
+                  ],
+                ],
               );
             },
-            childCount: (itemCount + columns - 1) ~/ columns,
           ),
-        );
-      },
+        ),
+      ),
     );
   }
 }

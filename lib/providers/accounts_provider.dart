@@ -51,6 +51,11 @@ class AccountsNotifier extends StateNotifier<AccountsState> {
     }
   }
 
+  Future<void> saveActiveAccountOrder(List<int> ids) async {
+    await _accountDao.saveActiveAccountOrder(ids);
+    await loadAccounts();
+  }
+
   void toggleArchivedFilter(bool showArchivedOnly) {
     state = state.copyWith(showArchivedOnly: showArchivedOnly);
   }

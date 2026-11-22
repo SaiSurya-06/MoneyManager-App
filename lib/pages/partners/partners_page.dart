@@ -1410,8 +1410,9 @@ class _PartnersPageState extends ConsumerState<PartnersPage> with SingleTickerPr
         ),
         SliverPadding(
           padding: const EdgeInsets.all(16),
-          sliver: SliverAccountGrid(
+          sliver: SliverList.separated(
             itemCount: syncState.partnerAccounts.length,
+            separatorBuilder: (_, __) => const SizedBox(height: 10),
             itemBuilder: (context, index) {
               final account = syncState.partnerAccounts[index];
               return AccountCard(

@@ -88,11 +88,41 @@ void main() {
         type TEXT NOT NULL DEFAULT 'both'
       )
     ''');
+    await AppDatabase.instance.upgradeDatabase(db, 15, AppDatabase.schemaVersion);
   });
 
   tearDown(() async {
     await db.close();
   });
+
+  test('account order persists, appends new accounts, and rejects a stale list',
+      () async {
+    final account = Account(
+      name: 'First account',
+      type: 'Bank',
+      balance: 100,
+      icon: 'account_balance',
+      color: '#4CAF50',
+      isShared: false,
+      createdAt: DateTime(2026, 1, 1),
+    );
+    final first = await accountDao.insertAccount(account);
+    final second = await accountDao.insertAccount(account.copyWith(name: 'Second account'));
+    final archived = await accountDao.insertAccount(
+      account.copyWith(name: 'Archived account', isArchived: true),
+    );
+    expect((await accountDao.getAllAccounts()).map((a) => a.id), [first, second, archived]);
+
+    await accountDao.saveActiveAccountOrder([second, first]);
+    final newId = await accountDao.insertAccount(account.copyWith(name: 'New account'));
+    await expectLater(accountDao.saveActiveAccountOrder([first, second]), throwsStateError);
+    await expectLater(accountDao.saveActiveAccountOrder([first, first, newId]), throwsStateError);
+
+    final reloaded = await AccountDao().getAllAccounts(includeArchived: false);
+    expect(reloaded.map((a) => a.id), [second, first, newId]);
+    expect(reloaded.map((a) => a.balance), [100, 100, 100]);
+  });
+
 
   test('stale transfer edits and repeated deletes preserve both balances', () async {
     final date = DateTime(2026, 1, 1);
@@ -190,7 +220,7 @@ void main() {
 
   test('v14 recurring transfers stay anchored and post once across refreshes',
       () async {
-    await AppDatabase.instance.upgradeDatabase(db, 14, AppDatabase.schemaVersion);
+    await AppDatabase.instance.upgradeDatabase(db, 14, 15);
     final january = DateTime(2025, 1, 31);
     final account = Account(
       name: 'Checking',

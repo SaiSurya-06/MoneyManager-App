@@ -8,9 +8,9 @@ import 'package:money_manager/providers/accounts_provider.dart';
 import 'package:money_manager/providers/auth_provider.dart';
 
 void main() {
-  for (final (width, scale, columns) in [
-    (390.0, 1.0, 2),
-    (320.0, 2.0, 1),
+  for (final (width, scale) in [
+    (390.0, 1.0),
+    (320.0, 2.0),
   ]) {
     testWidgets('Accounts fit at width $width and text scale $scale', (tester) async {
       tester.view.devicePixelRatio = 1;
@@ -49,8 +49,8 @@ void main() {
       await tester.scrollUntilVisible(second, 160);
       expect(first, findsOneWidget);
       expect(second, findsOneWidget);
-      expect(tester.getTopLeft(first).dx == tester.getTopLeft(second).dx,
-          columns == 1);
+      expect(tester.getTopLeft(first).dx, tester.getTopLeft(second).dx);
+      expect(tester.getBottomLeft(first).dy, lessThan(tester.getTopLeft(second).dy));
       final utilization = find.textContaining('Utilized:').last;
       await tester.ensureVisible(utilization);
       await tester.pumpAndSettle();
@@ -63,6 +63,26 @@ void main() {
         lessThan(tester.getBottomRight(lastCard).dy),
       );
       expect(find.textContaining('Pending payment:'), findsWidgets);
+
+      if (scale == 1.0) {
+        final reorder = find.text('Reorder');
+        await tester.scrollUntilVisible(reorder, -200);
+        await tester.tap(reorder);
+        await tester.pumpAndSettle();
+        final handles = find.byIcon(Icons.drag_handle);
+        final start = tester.getCenter(handles.last);
+        final target = tester.getCenter(handles.first) + const Offset(0, 8);
+        final drag = await tester.startGesture(start);
+        for (var step = 1; step <= 8; step++) {
+          await drag.moveTo(Offset.lerp(start, target, step / 8)!);
+          await tester.pump(const Duration(milliseconds: 40));
+        }
+        await drag.up();
+        await tester.pumpAndSettle();
+        await tester.tap(find.text('Save order'));
+        await tester.pumpAndSettle();
+        expect(tester.getTopLeft(second).dy, lessThan(tester.getTopLeft(first).dy));
+      }
 
       final archived = find.text('Archived (1)');
       await tester.scrollUntilVisible(archived, -200);
@@ -111,6 +131,15 @@ Account _creditCard(int id, String name, {bool archived = false}) {
 class _TestAccounts extends AccountsNotifier {
   _TestAccounts(List<Account> accounts) {
     state = AccountsState(accounts: accounts);
+  }
+
+  @override
+  Future<void> saveActiveAccountOrder(List<int> ids) async {
+    final accounts = {for (final account in state.activeAccounts) account.id: account};
+    state = state.copyWith(accounts: [
+      for (final id in ids) accounts[id]!,
+      ...state.archivedAccounts,
+    ]);
   }
 
   @override

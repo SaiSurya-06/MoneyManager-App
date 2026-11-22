@@ -6,7 +6,7 @@ import 'package:path/path.dart';
 import 'package:path_provider/path_provider.dart';
 
 class AppDatabase {
-  static const schemaVersion = 15;
+  static const schemaVersion = 16;
   static final AppDatabase instance = AppDatabase._init();
   static Database? _database;
   Completer<void>? _replacement;
@@ -291,6 +291,9 @@ class AppDatabase {
       await db.execute('ALTER TABLE transaction_log ADD COLUMN recurrence_template_id INTEGER');
       await db.execute('ALTER TABLE transaction_log ADD COLUMN recurrence_scheduled_date TEXT');
       await _createRecurrenceIndex(db);
+    }
+    if (oldVersion < 16 && newVersion >= 16) {
+      await db.execute('ALTER TABLE account ADD COLUMN display_order INTEGER');
     }
   }
 
@@ -721,6 +724,7 @@ class AppDatabase {
         minimum_due_minor INTEGER,
         limit_amount REAL,
         limit_amount_minor INTEGER,
+        display_order INTEGER,
         created_at TEXT NOT NULL
       )
     ''');
