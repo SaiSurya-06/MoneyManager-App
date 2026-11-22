@@ -56,4 +56,6 @@ coverage/
 *.jks
 key.properties
 *keystore_base64*
+*KEYSTORE_SECRETS*
+
 
