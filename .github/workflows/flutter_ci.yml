@@ -111,7 +111,7 @@ jobs:
           version="$(awk '/^version:/ {split($2, fields, "+"); print fields[1]}' pubspec.yaml)"
           [[ "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]] || { echo 'Invalid release version'; exit 1; }
           tag="v${version}-build${GITHUB_RUN_NUMBER}"
-          apk="MoneyManager-${tag}.apk"
+          apk="Money-Manager-${version}-build${GITHUB_RUN_NUMBER}.apk"
           flutter build apk --release --no-pub --build-name="$version" --build-number="$GITHUB_RUN_NUMBER"
 
           source="build/app/outputs/flutter-apk/app-release.apk"
@@ -121,17 +121,20 @@ jobs:
           badging="$("$ANDROID_HOME/build-tools/$ANDROID_BUILD_TOOLS/aapt" dump badging "$source")"
           grep -F "package: name='com.example.money_manager' versionCode='$GITHUB_RUN_NUMBER' versionName='$version'" <<< "$badging"
 
+          grep -Fx "application-label:'Money Manager'" <<< "$badging"
+
           mkdir -p dist
           cp "$source" "dist/$apk"
           (cd dist && sha256sum "$apk" > "$apk.sha256")
-          printf 'tag=%s\nfile=%s\n' "$tag" "$apk" >> "$GITHUB_OUTPUT"
+          printf 'tag=%s\nfile=%s\nversion=%s\n' "$tag" "$apk" "$version" >> "$GITHUB_OUTPUT"
 
       - name: Publish verified APK
         env:
           GH_TOKEN: ${{ github.token }}
           RELEASE_TAG: ${{ steps.apk.outputs.tag }}
           RELEASE_APK: ${{ steps.apk.outputs.file }}
+          RELEASE_VERSION: ${{ steps.apk.outputs.version }}
         run: |
           gh release create "$RELEASE_TAG" "dist/$RELEASE_APK" "dist/$RELEASE_APK.sha256" \
-            --target "$GITHUB_SHA" --title "Money Manager $RELEASE_TAG" --generate-notes --draft
+            --target "$GITHUB_SHA" --title "Money Manager $RELEASE_VERSION (Build $GITHUB_RUN_NUMBER)" --generate-notes --draft
           gh release edit "$RELEASE_TAG" --draft=false

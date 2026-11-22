@@ -21,4 +21,4 @@ Resolve release signing before publishing an update. Existing Android installati
 
 In GitHub Actions, manually run **Flutter CI/CD** from the default branch with **Publish a signed APK from the default branch** enabled. The release job starts after CI succeeds and any environment approval is granted. It verifies the certificate, application ID, and version and publishes the APK and SHA-256 checksum to GitHub Releases.
 
-Release version names come from `pubspec.yaml`. The workflow run number provides the Android version code. Check that this exceeds the version code used by the intended distribution channel when migrating to a new workflow or release channel.
+Release version names come from `pubspec.yaml`. For version 1.1.2 and workflow run 70, the release is named **Money Manager 1.1.2 (Build 70)** and the asset is `Money-Manager-1.1.2-build70.apk`. The workflow run number provides the Android version code. Check that this exceeds the version code used by the intended distribution channel when migrating to a new workflow or release channel.

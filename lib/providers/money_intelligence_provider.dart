@@ -69,7 +69,7 @@ class MoneyIntelligenceNotifier extends StateNotifier<MoneyIntelligenceState> {
       debugPrint('[Riverpod] Debts updated. Re-running analytics.');
       _recalculate();
     });
-    _ref.listen(accountsProvider, (previous, next) {
+    _ref.listen(accountsProvider.select((state) => state.accounts), (previous, next) {
       debugPrint('[Riverpod] Accounts updated. Re-running analytics.');
       _recalculate();
     });

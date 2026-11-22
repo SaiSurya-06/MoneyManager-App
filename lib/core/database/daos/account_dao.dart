@@ -142,14 +142,23 @@ class AccountDao {
       final result = await db.query(
         'account',
         where: includeArchived ? null : 'is_archived = 0',
-        orderBy: 'CASE WHEN is_archived = 0 AND display_order IS NOT NULL '
-            'THEN 0 ELSE 1 END, '
-            'CASE WHEN is_archived = 0 THEN display_order END, id',
+        orderBy: 'id ASC',
       );
       return result.map((json) => Account.fromMap(json)).toList();
     } catch (e) {
       throw Exception('AccountDao.getAllAccounts failed: $e');
     }
+  }
+
+  Future<List<int>> getActiveAccountOrder() async {
+    final db = await _dbProvider.database;
+    final rows = await db.query(
+      'account',
+      columns: ['id'],
+      where: 'is_archived = 0 AND display_order IS NOT NULL',
+      orderBy: 'display_order ASC, id ASC',
+    );
+    return rows.map((row) => row['id'] as int).toList();
   }
 
   Future<void> saveActiveAccountOrder(List<int> ids) async {

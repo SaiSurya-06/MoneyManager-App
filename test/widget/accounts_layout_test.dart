@@ -10,6 +10,7 @@ import 'package:money_manager/providers/auth_provider.dart';
 void main() {
   for (final (width, scale) in [
     (390.0, 1.0),
+    (390.0, 1.15),
     (320.0, 2.0),
   ]) {
     testWidgets('Accounts fit at width $width and text scale $scale', (tester) async {
@@ -23,7 +24,8 @@ void main() {
           overrides: [
             accountsProvider.overrideWith(
               (ref) => _TestAccounts([
-                _creditCard(1, 'Household credit card with a long name'),
+                _creditCard(1, 'Household account with a long name')
+                    .copyWith(type: 'Bank'),
                 _creditCard(2, 'Travel credit card'),
                 _creditCard(3, 'Archived credit card', archived: true),
               ]),
@@ -44,13 +46,21 @@ void main() {
       );
       await tester.pumpAndSettle();
 
-      final first = find.text('Household credit card with a long name');
+      final first = find.text('Household account with a long name');
       final second = find.text('Travel credit card');
       await tester.scrollUntilVisible(second, 160);
       expect(first, findsOneWidget);
       expect(second, findsOneWidget);
-      expect(tester.getTopLeft(first).dx, tester.getTopLeft(second).dx);
-      expect(tester.getBottomLeft(first).dy, lessThan(tester.getTopLeft(second).dy));
+      if (scale < 1.2) {
+        final firstBox = find.ancestor(of: first, matching: find.byType(AccountCard));
+        final secondBox = find.ancestor(of: second, matching: find.byType(AccountCard));
+        expect(tester.getTopLeft(firstBox).dy, tester.getTopLeft(secondBox).dy);
+        expect(tester.getSize(firstBox), tester.getSize(secondBox));
+        expect(tester.getTopLeft(firstBox).dx, lessThan(tester.getTopLeft(secondBox).dx));
+      } else {
+        expect(tester.getTopLeft(first).dx, tester.getTopLeft(second).dx);
+        expect(tester.getBottomLeft(first).dy, lessThan(tester.getTopLeft(second).dy));
+      }
       final utilization = find.textContaining('Utilized:').last;
       await tester.ensureVisible(utilization);
       await tester.pumpAndSettle();
@@ -81,7 +91,7 @@ void main() {
         await tester.pumpAndSettle();
         await tester.tap(find.text('Save order'));
         await tester.pumpAndSettle();
-        expect(tester.getTopLeft(second).dy, lessThan(tester.getTopLeft(first).dy));
+        expect(tester.getTopLeft(second).dx, lessThan(tester.getTopLeft(first).dx));
       }
 
       final archived = find.text('Archived (1)');
@@ -135,11 +145,7 @@ class _TestAccounts extends AccountsNotifier {
 
   @override
   Future<void> saveActiveAccountOrder(List<int> ids) async {
-    final accounts = {for (final account in state.activeAccounts) account.id: account};
-    state = state.copyWith(accounts: [
-      for (final id in ids) accounts[id]!,
-      ...state.archivedAccounts,
-    ]);
+    state = state.copyWith(activeAccountOrder: ids);
   }
 
   @override

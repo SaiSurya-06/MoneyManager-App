@@ -128,7 +128,7 @@ class _AccountsPageState extends ConsumerState<AccountsPage> {
 
     final displayedAccounts = _showArchived 
         ? accountsState.archivedAccounts 
-        : accountsState.activeAccounts;
+        : accountsState.orderedActiveAccounts;
 
     return Scaffold(
       appBar: AppBar(
@@ -467,13 +467,13 @@ class _AccountsPageState extends ConsumerState<AccountsPage> {
                   else
                     SliverPadding(
                       padding: const EdgeInsets.symmetric(horizontal: 16.0),
-                      sliver: SliverList.separated(
+                      sliver: SliverAccountBoxes(
                         itemCount: displayedAccounts.length,
-                        separatorBuilder: (_, __) => const SizedBox(height: 10),
-                        itemBuilder: (context, index) {
+                        itemBuilder: (context, index, compact) {
                           final account = displayedAccounts[index];
                           final cardItem = AccountCard(
                             account: account,
+                            compact: compact,
                             currency: currency,
                             onTap: () {
                               Navigator.push(
@@ -571,7 +571,7 @@ class _AccountsPageState extends ConsumerState<AccountsPage> {
                             onDismissed: (direction) async {
                               await ref.read(accountsProvider.notifier).deleteAccount(account.id!);
                             },
-                            child: cardItem,
+                            child: compact ? SizedBox.expand(child: cardItem) : cardItem,
                           );
                         },
                       ),

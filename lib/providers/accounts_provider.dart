@@ -8,28 +8,43 @@ class AccountsState {
   final bool isLoading;
   final String? errorMessage;
   final bool showArchivedOnly;
+  final List<int> activeAccountOrder;
 
   AccountsState({
     required this.accounts,
     this.isLoading = false,
     this.errorMessage,
     this.showArchivedOnly = false,
+    this.activeAccountOrder = const [],
   });
 
   List<Account> get activeAccounts => accounts.where((a) => !a.isArchived).toList();
   List<Account> get archivedAccounts => accounts.where((a) => a.isArchived).toList();
+
+  List<Account> get orderedActiveAccounts {
+    final active = activeAccounts;
+    final byId = {for (final account in active) account.id: account};
+    final ranked = activeAccountOrder.toSet();
+    return [
+      for (final id in activeAccountOrder)
+        if (byId[id] != null) byId[id]!,
+      ...active.where((account) => !ranked.contains(account.id)),
+    ];
+  }
 
   AccountsState copyWith({
     List<Account>? accounts,
     bool? isLoading,
     String? errorMessage,
     bool? showArchivedOnly,
+    List<int>? activeAccountOrder,
   }) {
     return AccountsState(
       accounts: accounts ?? this.accounts,
       isLoading: isLoading ?? this.isLoading,
       errorMessage: errorMessage,
       showArchivedOnly: showArchivedOnly ?? this.showArchivedOnly,
+      activeAccountOrder: activeAccountOrder ?? this.activeAccountOrder,
     );
   }
 }
@@ -45,7 +60,13 @@ class AccountsNotifier extends StateNotifier<AccountsState> {
     try {
       state = state.copyWith(isLoading: true);
       final accounts = await _accountDao.getAllAccounts(includeArchived: true);
-      state = state.copyWith(accounts: accounts, isLoading: false, errorMessage: null);
+      final activeAccountOrder = await _accountDao.getActiveAccountOrder();
+      state = state.copyWith(
+        accounts: accounts,
+        activeAccountOrder: activeAccountOrder,
+        isLoading: false,
+        errorMessage: null,
+      );
     } catch (e) {
       state = state.copyWith(isLoading: false, errorMessage: 'Failed to load accounts: $e');
     }
@@ -53,7 +74,7 @@ class AccountsNotifier extends StateNotifier<AccountsState> {
 
   Future<void> saveActiveAccountOrder(List<int> ids) async {
     await _accountDao.saveActiveAccountOrder(ids);
-    await loadAccounts();
+    if (mounted) state = state.copyWith(activeAccountOrder: List.of(ids));
   }
 
   void toggleArchivedFilter(bool showArchivedOnly) {

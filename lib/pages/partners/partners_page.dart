@@ -1410,13 +1410,13 @@ class _PartnersPageState extends ConsumerState<PartnersPage> with SingleTickerPr
         ),
         SliverPadding(
           padding: const EdgeInsets.all(16),
-          sliver: SliverList.separated(
+          sliver: SliverAccountBoxes(
             itemCount: syncState.partnerAccounts.length,
-            separatorBuilder: (_, __) => const SizedBox(height: 10),
-            itemBuilder: (context, index) {
+            itemBuilder: (context, index, compact) {
               final account = syncState.partnerAccounts[index];
               return AccountCard(
                 account: account,
+                  compact: compact,
                 currency: syncState.partnerCurrency,
                 onTap: () {
                   context.push('/partner-sharing/account-detail', extra: account);
