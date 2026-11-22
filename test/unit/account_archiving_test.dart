@@ -113,14 +113,35 @@ void main() {
     );
     expect((await accountDao.getAllAccounts()).map((a) => a.id), [first, second, archived]);
 
+    await transactionDao.insertTransaction(Transaction(
+      accountId: first,
+      categoryId: 1,
+      title: 'Existing expense',
+      amount: 10,
+      type: 'expense',
+      date: account.createdAt,
+      isPrivate: false,
+      createdAt: account.createdAt,
+    ));
+    final accountsBefore = await db.query('account', orderBy: 'id');
+    final ledgerBefore = await db.query('transaction_log', orderBy: 'id');
     await accountDao.saveActiveAccountOrder([second, first]);
+    final accountsAfter = await db.query('account', orderBy: 'id');
+    for (var i = 0; i < accountsBefore.length; i++) {
+      expect(
+        Map.of(accountsAfter[i])..remove('display_order'),
+        Map.of(accountsBefore[i])..remove('display_order'),
+      );
+    }
+    expect(await db.query('transaction_log', orderBy: 'id'), ledgerBefore);
     final newId = await accountDao.insertAccount(account.copyWith(name: 'New account'));
     await expectLater(accountDao.saveActiveAccountOrder([first, second]), throwsStateError);
     await expectLater(accountDao.saveActiveAccountOrder([first, first, newId]), throwsStateError);
 
     final reloaded = await AccountDao().getAllAccounts(includeArchived: false);
-    expect(reloaded.map((a) => a.id), [second, first, newId]);
-    expect(reloaded.map((a) => a.balance), [100, 100, 100]);
+    expect(await AccountDao().getActiveAccountOrder(), [second, first]);
+    expect(reloaded.map((a) => a.id), [first, second, newId]);
+    expect(reloaded.map((a) => a.balance), [90, 100, 100]);
   });
 
 

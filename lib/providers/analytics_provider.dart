@@ -120,7 +120,7 @@ class AnalyticsNotifier extends StateNotifier<AnalyticsState> {
           isLoading: true,
         )) {
     // Reload analytics when accounts or transactions change
-    _ref.listen(accountsProvider, (_, __) => refreshAnalytics());
+    _ref.listen(accountsProvider.select((state) => state.accounts), (_, __) => refreshAnalytics());
     _ref.listen(transactionsProvider, (_, __) => refreshAnalytics());
     refreshAnalytics();
   }
