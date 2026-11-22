@@ -118,15 +118,25 @@ jobs:
 
       # ── Restore Keystore & key.properties ────────────────────────
       - name: 🔑 Decode Keystore & Restore key.properties
+        env:
+          KEYSTORE_BASE64: ${{ secrets.RELEASE_KEYSTORE_BASE64 }}
+          STORE_PASSWORD: ${{ secrets.STORE_PASSWORD }}
+          KEY_PASSWORD: ${{ secrets.KEY_PASSWORD }}
+          KEY_ALIAS: ${{ secrets.KEY_ALIAS }}
         run: |
           mkdir -p android/app
-          base64 -d android/keystore_base64.txt > android/app/money_manager.keystore
-          cat <<EOF > android/key.properties
-          storePassword=${{ secrets.STORE_PASSWORD || 'MoneyManager2026' }}
-          keyPassword=${{ secrets.KEY_PASSWORD || 'MoneyManager2026' }}
-          keyAlias=${{ secrets.KEY_ALIAS || 'money_manager' }}
-          storeFile=money_manager.keystore
-          EOF
+          if [ -n "$KEYSTORE_BASE64" ]; then
+            echo "$KEYSTORE_BASE64" | base64 -d > android/app/money_manager.keystore
+            cat <<EOF > android/key.properties
+            storePassword=${STORE_PASSWORD}
+            keyPassword=${KEY_PASSWORD}
+            keyAlias=${KEY_ALIAS}
+            storeFile=money_manager.keystore
+            EOF
+            echo "Release keystore decoded and key.properties configured."
+          else
+            echo "::warning::RELEASE_KEYSTORE_BASE64 secret is not configured. Release APK build may be unsigned."
+          fi
 
       # ── Build exactly ONE release APK ────────────────────────────
       - name: 🔨 Build release APK

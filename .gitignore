@@ -50,3 +50,10 @@ session-ses_*.md
 # Android NDK build cache
 android/app/.cxx/
 coverage/
+
+# Android signing & credentials (NEVER commit to VCS)
+*.keystore
+*.jks
+key.properties
+*keystore_base64*
+

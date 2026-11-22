@@ -76,11 +76,18 @@ android {
 
     buildTypes {
         debug {
-            // Use the same stable key as release so debug APKs can always update
-            signingConfig = signingConfigs.release
+            def releaseStore = signingConfigs.release.storeFile
+            if (releaseStore != null && releaseStore.exists()) {
+                signingConfig = signingConfigs.release
+            } else {
+                signingConfig = signingConfigs.debug
+            }
         }
         release {
-            signingConfig = signingConfigs.release
+            def releaseStore = signingConfigs.release.storeFile
+            if (releaseStore != null && releaseStore.exists()) {
+                signingConfig = signingConfigs.release
+            }
             proguardFiles getDefaultProguardFile('proguard-android-optimize.txt'), 'proguard-rules.pro'
         }
     }
