@@ -29,6 +29,91 @@ class _AccountsPageState extends ConsumerState<AccountsPage> {
     );
   }
 
+  Future<void> _reorderAccounts(List<Account> accounts) async {
+    final draft = [...accounts];
+    final order = await showModalBottomSheet<List<int>>(
+      context: context,
+      isScrollControlled: true,
+      useSafeArea: true,
+      enableDrag: false,
+      builder: (sheetContext) => FractionallySizedBox(
+        heightFactor: 0.8,
+        child: SafeArea(
+          top: false,
+          child: StatefulBuilder(
+            builder: (context, update) => Column(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                ListTile(
+                  title: const Text('Reorder accounts'),
+                  subtitle: const Text('Drag the handles to arrange your active accounts.'),
+                  trailing: IconButton(
+                    tooltip: 'Cancel reorder',
+                    onPressed: () => Navigator.pop(sheetContext),
+                    icon: const Icon(Icons.close),
+                  ),
+                ),
+                Expanded(
+                  child: ReorderableListView.builder(
+                    buildDefaultDragHandles: false,
+                    itemCount: draft.length,
+                    onReorder: (oldIndex, newIndex) {
+                      update(() {
+                        if (newIndex > oldIndex) newIndex--;
+                        draft.insert(newIndex, draft.removeAt(oldIndex));
+                      });
+                    },
+                    itemBuilder: (context, index) {
+                      final account = draft[index];
+                      return ListTile(
+                        key: ValueKey(account.id),
+                        title: Text(account.name),
+                        subtitle: Text(account.type),
+                        trailing: ReorderableDragStartListener(
+                          index: index,
+                          child: const ColoredBox(
+                            color: Colors.transparent,
+                            child: SizedBox(
+                              width: 48,
+                              height: 48,
+                              child: Icon(Icons.drag_handle, semanticLabel: 'Drag to reorder'),
+                            ),
+                          ),
+                        ),
+                      );
+                    },
+                  ),
+                ),
+                Padding(
+                  padding: const EdgeInsets.fromLTRB(16, 8, 16, 12),
+                  child: FilledButton(
+                    onPressed: () => Navigator.pop(
+                      sheetContext,
+                      draft.map((account) => account.id!).toList(),
+                    ),
+                    child: const Text('Save order'),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+    if (order == null || !mounted) return;
+    try {
+      await ref.read(accountsProvider.notifier).saveActiveAccountOrder(order);
+    } catch (_) {
+      if (mounted) {
+        ToastNotification.show(
+          context,
+          'Could not save the order. Reopen Reorder and try again.',
+          isError: true,
+        );
+      }
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     final accountsState = ref.watch(accountsProvider);
@@ -342,7 +427,24 @@ class _AccountsPageState extends ConsumerState<AccountsPage> {
                       ),
                     ),
 
-                  // My Accounts Grid
+                  if (!_showArchived &&
+                      displayedAccounts.length > 1 &&
+                      displayedAccounts.every((account) => account.id != null))
+                    SliverPadding(
+                      padding: const EdgeInsets.symmetric(horizontal: 16),
+                      sliver: SliverToBoxAdapter(
+                        child: Align(
+                          alignment: AlignmentDirectional.centerEnd,
+                          child: TextButton.icon(
+                            onPressed: () => _reorderAccounts(displayedAccounts),
+                            icon: const Icon(Icons.reorder),
+                            label: const Text('Reorder'),
+                          ),
+                        ),
+                      ),
+                    ),
+
+                  // Account list
                   if (displayedAccounts.isEmpty)
                     SliverPadding(
                       padding: const EdgeInsets.symmetric(horizontal: 20.0, vertical: 20.0),
@@ -365,8 +467,9 @@ class _AccountsPageState extends ConsumerState<AccountsPage> {
                   else
                     SliverPadding(
                       padding: const EdgeInsets.symmetric(horizontal: 16.0),
-                      sliver: SliverAccountGrid(
+                      sliver: SliverList.separated(
                         itemCount: displayedAccounts.length,
+                        separatorBuilder: (_, __) => const SizedBox(height: 10),
                         itemBuilder: (context, index) {
                           final account = displayedAccounts[index];
                           final cardItem = AccountCard(

@@ -142,12 +142,37 @@ class AccountDao {
       final result = await db.query(
         'account',
         where: includeArchived ? null : 'is_archived = 0',
-        orderBy: 'id ASC',
+        orderBy: 'CASE WHEN is_archived = 0 AND display_order IS NOT NULL '
+            'THEN 0 ELSE 1 END, '
+            'CASE WHEN is_archived = 0 THEN display_order END, id',
       );
       return result.map((json) => Account.fromMap(json)).toList();
     } catch (e) {
       throw Exception('AccountDao.getAllAccounts failed: $e');
     }
+  }
+
+  Future<void> saveActiveAccountOrder(List<int> ids) async {
+    final db = await _dbProvider.database;
+    await db.transaction((txn) async {
+      final rows = await txn.query(
+        'account',
+        columns: ['id'],
+        where: 'is_archived = 0',
+      );
+      final activeIds = rows.map((row) => row['id'] as int).toSet();
+      if (ids.length != activeIds.length ||
+          ids.toSet().length != ids.length ||
+          !activeIds.containsAll(ids)) {
+        throw StateError('The active accounts changed. Open Reorder again.');
+      }
+      final batch = txn.batch();
+      for (var index = 0; index < ids.length; index++) {
+        batch.update('account', {'display_order': index},
+            where: 'id = ?', whereArgs: [ids[index]]);
+      }
+      await batch.commit(noResult: true);
+    });
   }
 
   Future<void> recalculateAllBalances() async {
