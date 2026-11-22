@@ -1410,26 +1410,18 @@ class _PartnersPageState extends ConsumerState<PartnersPage> with SingleTickerPr
         ),
         SliverPadding(
           padding: const EdgeInsets.all(16),
-          sliver: SliverGrid(
-            gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
-              crossAxisCount: 2,
-              crossAxisSpacing: 12,
-              mainAxisSpacing: 12,
-              childAspectRatio: ((MediaQuery.of(context).size.width - 32 - 12) / 2) / 172.0,
-            ),
-            delegate: SliverChildBuilderDelegate(
-              (context, index) {
-                final account = syncState.partnerAccounts[index];
-                return AccountCard(
-                  account: account,
-                  currency: syncState.partnerCurrency,
-                  onTap: () {
-                    context.push('/partner-sharing/account-detail', extra: account);
-                  },
-                );
-              },
-              childCount: syncState.partnerAccounts.length,
-            ),
+          sliver: SliverAccountGrid(
+            itemCount: syncState.partnerAccounts.length,
+            itemBuilder: (context, index) {
+              final account = syncState.partnerAccounts[index];
+              return AccountCard(
+                account: account,
+                currency: syncState.partnerCurrency,
+                onTap: () {
+                  context.push('/partner-sharing/account-detail', extra: account);
+                },
+              );
+            },
           ),
         ),
       ],

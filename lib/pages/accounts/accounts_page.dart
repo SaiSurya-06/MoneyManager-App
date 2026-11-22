@@ -35,7 +35,11 @@ class _AccountsPageState extends ConsumerState<AccountsPage> {
     final authState = ref.watch(authProvider);
 
     final currency = authState.profile?.preferredCurrency ?? 'USD';
-    final isDark = Theme.of(context).brightness == Brightness.dark;
+    final theme = Theme.of(context);
+    final isDark = theme.brightness == Brightness.dark;
+    final summaryCaption = theme.textTheme.bodySmall?.copyWith(
+      color: theme.colorScheme.onSurfaceVariant,
+    );
 
     final displayedAccounts = _showArchived 
         ? accountsState.archivedAccounts 
@@ -47,7 +51,9 @@ class _AccountsPageState extends ConsumerState<AccountsPage> {
           children: [
             Image.asset('assets/logo.png', height: 26, width: 26),
             const SizedBox(width: 8),
-            const Text('Accounts'),
+            const Flexible(
+              child: Text('Accounts', maxLines: 1, overflow: TextOverflow.ellipsis),
+            ),
           ],
         ),
         actions: [
@@ -62,7 +68,9 @@ class _AccountsPageState extends ConsumerState<AccountsPage> {
           ? const Center(child: CircularProgressIndicator(color: Color(0xFFE53935)))
           : TweenAnimationBuilder<double>(
               tween: Tween<double>(begin: 0.0, end: 1.0),
-              duration: const Duration(milliseconds: 750),
+              duration: MediaQuery.disableAnimationsOf(context)
+                  ? Duration.zero
+                  : const Duration(milliseconds: 750),
               curve: Curves.easeOutQuart,
               builder: (context, value, child) {
                 return Transform.translate(
@@ -83,63 +91,59 @@ class _AccountsPageState extends ConsumerState<AccountsPage> {
                         width: double.infinity,
                         decoration: BoxDecoration(
                           borderRadius: BorderRadius.circular(20),
-                          gradient: const LinearGradient(
-                            colors: [Color(0xFFE53935), Color(0xFFD4AF37)],
+                          gradient: LinearGradient(
+                            colors: [
+                              Color.alphaBlend(
+                                const Color(0xFFD4AF37).withValues(alpha: 0.15),
+                                theme.colorScheme.surface,
+                              ),
+                              theme.colorScheme.surface,
+                            ],
                             begin: Alignment.topLeft,
                             end: Alignment.bottomRight,
                           ),
-                          boxShadow: [
-                            BoxShadow(
-                              color: const Color(0xFFE53935).withValues(alpha: 0.25),
-                              blurRadius: 12,
-                              offset: const Offset(0, 6),
-                            ),
-                          ],
+                          border: Border.all(
+                            color: const Color(0xFFD4AF37).withValues(alpha: 0.32),
+                          ),
                         ),
                         padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 16),
                         child: Column(
                           crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
-                            const Text(
-                              'AGGREGATE LIQUIDITY',
-                              style: TextStyle(
-                                color: Colors.white70,
-                                fontSize: 9,
-                                fontWeight: FontWeight.bold,
-                                letterSpacing: 1.2,
-                                fontFamily: 'Inter',
-                              ),
-                            ),
+                            Text('Total balance', style: summaryCaption),
                             const SizedBox(height: 6),
                             Row(
                               mainAxisAlignment: MainAxisAlignment.spaceBetween,
                               children: [
-                                Text(
-                                  CurrencyFormatter.format(
-                                    accountsState.activeAccounts.fold<double>(
-                                      0.0,
-                                      (sum, acc) => acc.type != 'Credit Card' ? sum + acc.balance : sum,
+                                Expanded(
+                                  child: Text(
+                                    CurrencyFormatter.format(
+                                      accountsState.activeAccounts.fold<double>(
+                                        0.0,
+                                        (sum, acc) => acc.type != 'Credit Card' ? sum + acc.balance : sum,
+                                      ),
+                                      currency,
                                     ),
-                                    currency,
-                                  ),
-                                  style: const TextStyle(
-                                    color: Colors.white,
-                                    fontSize: 22,
-                                    fontWeight: FontWeight.w800,
-                                    fontFamily: 'Inter',
+                                    style: theme.textTheme.headlineSmall?.copyWith(
+                                      fontWeight: FontWeight.w800,
+                                      color: theme.colorScheme.onSurface,
+                                    ),
                                   ),
                                 ),
-                                Icon(Icons.account_balance_wallet, color: Colors.white.withValues(alpha: 0.8), size: 24),
+                                const SizedBox(width: 12),
+                                Icon(
+                                  Icons.account_balance_wallet,
+                                  color: isDark
+                                      ? const Color(0xFFD4AF37)
+                                      : const Color(0xFF7A5A00),
+                                  size: 24,
+                                ),
                               ],
                             ),
                             const SizedBox(height: 4),
                             Text(
                               '${accountsState.activeAccounts.length} Active Accounts${accountsState.archivedAccounts.isNotEmpty ? ' (${accountsState.archivedAccounts.length} archived)' : ''}',
-                              style: const TextStyle(
-                                color: Colors.white60,
-                                fontSize: 10,
-                                fontFamily: 'Inter',
-                              ),
+                              style: summaryCaption,
                             ),
                           ],
                         ),
@@ -181,16 +185,13 @@ class _AccountsPageState extends ConsumerState<AccountsPage> {
                                 Row(
                                   mainAxisAlignment: MainAxisAlignment.spaceBetween,
                                   children: [
-                                    Text(
-                                      'CREDIT UTILIZATION',
-                                      style: TextStyle(
-                                        color: isDark ? Colors.white70 : Colors.black87,
-                                        fontSize: 9,
-                                        fontWeight: FontWeight.bold,
-                                        letterSpacing: 1.2,
-                                        fontFamily: 'Inter',
+                                    Expanded(
+                                      child: Text(
+                                        'Credit utilization',
+                                        style: theme.textTheme.titleSmall,
                                       ),
                                     ),
+                                    const SizedBox(width: 8),
                                     Text(
                                       '${utilization.toStringAsFixed(1)}%',
                                       style: TextStyle(
@@ -214,22 +215,20 @@ class _AccountsPageState extends ConsumerState<AccountsPage> {
                                 ),
                                 const SizedBox(height: 10),
                                 Row(
-                                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                                  crossAxisAlignment: CrossAxisAlignment.start,
                                   children: [
-                                    Text(
-                                      'Used: ${CurrencyFormatter.format(totalUsed, currency)}',
-                                      style: const TextStyle(
-                                        color: Colors.grey,
-                                        fontSize: 10,
-                                        fontFamily: 'Inter',
+                                    Expanded(
+                                      child: Text(
+                                        'Used: ${CurrencyFormatter.format(totalUsed, currency)}',
+                                        style: summaryCaption,
                                       ),
                                     ),
-                                    Text(
-                                      'Limit: ${CurrencyFormatter.format(totalLimit, currency)}',
-                                      style: const TextStyle(
-                                        color: Colors.grey,
-                                        fontSize: 10,
-                                        fontFamily: 'Inter',
+                                    const SizedBox(width: 12),
+                                    Expanded(
+                                      child: Text(
+                                        'Limit: ${CurrencyFormatter.format(totalLimit, currency)}',
+                                        textAlign: TextAlign.end,
+                                        style: summaryCaption,
                                       ),
                                     ),
                                   ],
@@ -366,95 +365,56 @@ class _AccountsPageState extends ConsumerState<AccountsPage> {
                   else
                     SliverPadding(
                       padding: const EdgeInsets.symmetric(horizontal: 16.0),
-                      sliver: SliverGrid(
-                        gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
-                          crossAxisCount: 2,
-                          crossAxisSpacing: 12,
-                          mainAxisSpacing: 12,
-                          childAspectRatio: ((MediaQuery.of(context).size.width - 32 - 12) / 2) / 172.0,
-                        ),
-                        delegate: SliverChildBuilderDelegate(
-                          (context, index) {
-                            final account = displayedAccounts[index];
-                            final cardItem = AccountCard(
-                              account: account,
-                              currency: currency,
-                              onTap: () {
-                                Navigator.push(
-                                  context,
-                                  MaterialPageRoute(
-                                    builder: (context) => AccountTransactionsPage(account: account),
-                                  ),
-                                );
-                              },
-                              onLongPress: () => _openAccountForm(context, account),
-                            );
+                      sliver: SliverAccountGrid(
+                        itemCount: displayedAccounts.length,
+                        itemBuilder: (context, index) {
+                          final account = displayedAccounts[index];
+                          final cardItem = AccountCard(
+                            account: account,
+                            currency: currency,
+                            onTap: () {
+                              Navigator.push(
+                                context,
+                                MaterialPageRoute(
+                                  builder: (context) => AccountTransactionsPage(account: account),
+                                ),
+                              );
+                            },
+                            onLongPress: () => _openAccountForm(context, account),
+                          );
 
-                            return Dismissible(
-                              key: ValueKey(account.id ?? account.createdAt.millisecondsSinceEpoch),
-                              direction: DismissDirection.endToStart,
-                              background: Container(
-                                alignment: Alignment.centerRight,
-                                padding: const EdgeInsets.only(right: 20.0),
-                                decoration: BoxDecoration(
-                                  color: account.isArchived ? const Color(0xFFD4AF37) : const Color(0xFFE53935),
-                                  borderRadius: BorderRadius.circular(16),
-                                ),
-                                child: Icon(
-                                  account.isArchived ? Icons.unarchive : Icons.archive,
-                                  color: Colors.white,
-                                ),
+                          return Dismissible(
+                            key: ValueKey(account.id ?? account.createdAt.millisecondsSinceEpoch),
+                            direction: DismissDirection.endToStart,
+                            background: Container(
+                              alignment: Alignment.centerRight,
+                              padding: const EdgeInsets.only(right: 20.0),
+                              decoration: BoxDecoration(
+                                color: account.isArchived ? const Color(0xFFD4AF37) : const Color(0xFFE53935),
+                                borderRadius: BorderRadius.circular(16),
                               ),
-                              confirmDismiss: (direction) async {
-                                if (account.isArchived) {
-                                  // Restore account
-                                  await ref.read(accountsProvider.notifier).restoreAccount(account.id!);
-                                  ToastNotification.show(context, 'Account "${account.name}" restored.');
-                                  return false;
-                                }
+                              child: Icon(
+                                account.isArchived ? Icons.unarchive : Icons.archive,
+                                color: Colors.white,
+                              ),
+                            ),
+                            confirmDismiss: (direction) async {
+                              if (account.isArchived) {
+                                // Restore account
+                                await ref.read(accountsProvider.notifier).restoreAccount(account.id!);
+                                ToastNotification.show(context, 'Account "${account.name}" restored.');
+                                return false;
+                              }
 
-                                final txCount = await ref.read(accountsProvider.notifier).getTransactionCount(account.id!);
-                                if (txCount > 0) {
-                                  // Offer archive instead of deletion
-                                  final shouldArchive = await showDialog<bool>(
-                                    context: context,
-                                    builder: (context) => AlertDialog(
-                                      backgroundColor: isDark ? const Color(0xFF1E1E2E) : Colors.white,
-                                      title: const Text('Account Has Transactions', style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
-                                      content: Text('Account "${account.name}" has $txCount transactions. To safeguard your financial history, it cannot be permanently deleted.\n\nArchive it instead?'),
-                                      actions: [
-                                        TextButton(
-                                          onPressed: () => Navigator.pop(context, false),
-                                          child: const Text('Cancel'),
-                                        ),
-                                        ElevatedButton(
-                                          style: ElevatedButton.styleFrom(
-                                            backgroundColor: const Color(0xFFD4AF37),
-                                            foregroundColor: Colors.black,
-                                          ),
-                                          onPressed: () => Navigator.pop(context, true),
-                                          child: const Text('Archive'),
-                                        ),
-                                      ],
-                                    ),
-                                  );
-
-                                  if (shouldArchive == true) {
-                                    await ref.read(accountsProvider.notifier).archiveAccount(account.id!);
-                                    if (context.mounted) {
-                                      ToastNotification.show(context, 'Archived "${account.name}".');
-                                    }
-                                  }
-                                  return false;
-                                }
-
-                                // 0 transactions: allow delete confirmation
-                                return await showDialog<bool>(
+                              final txCount = await ref.read(accountsProvider.notifier).getTransactionCount(account.id!);
+                              if (txCount > 0) {
+                                // Offer archive instead of deletion
+                                final shouldArchive = await showDialog<bool>(
                                   context: context,
                                   builder: (context) => AlertDialog(
                                     backgroundColor: isDark ? const Color(0xFF1E1E2E) : Colors.white,
-                                    title: const Text('Delete Account', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
-                                    content: Text('Delete empty account "${account.name}"?'),
+                                    title: const Text('Account Has Transactions', style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
+                                    content: Text('Account "${account.name}" has $txCount transactions. To safeguard your financial history, it cannot be permanently deleted.\n\nArchive it instead?'),
                                     actions: [
                                       TextButton(
                                         onPressed: () => Navigator.pop(context, false),
@@ -462,24 +422,55 @@ class _AccountsPageState extends ConsumerState<AccountsPage> {
                                       ),
                                       ElevatedButton(
                                         style: ElevatedButton.styleFrom(
-                                          backgroundColor: const Color(0xFFE53935),
-                                          foregroundColor: Colors.white,
+                                          backgroundColor: const Color(0xFFD4AF37),
+                                          foregroundColor: Colors.black,
                                         ),
                                         onPressed: () => Navigator.pop(context, true),
-                                        child: const Text('Delete'),
+                                        child: const Text('Archive'),
                                       ),
                                     ],
                                   ),
                                 );
-                              },
-                              onDismissed: (direction) async {
-                                await ref.read(accountsProvider.notifier).deleteAccount(account.id!);
-                              },
-                              child: cardItem,
-                            );
-                          },
-                          childCount: displayedAccounts.length,
-                        ),
+
+                                if (shouldArchive == true) {
+                                  await ref.read(accountsProvider.notifier).archiveAccount(account.id!);
+                                  if (context.mounted) {
+                                    ToastNotification.show(context, 'Archived "${account.name}".');
+                                  }
+                                }
+                                return false;
+                              }
+
+                              // 0 transactions: allow delete confirmation
+                              return await showDialog<bool>(
+                                context: context,
+                                builder: (context) => AlertDialog(
+                                  backgroundColor: isDark ? const Color(0xFF1E1E2E) : Colors.white,
+                                  title: const Text('Delete Account', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
+                                  content: Text('Delete empty account "${account.name}"?'),
+                                  actions: [
+                                    TextButton(
+                                      onPressed: () => Navigator.pop(context, false),
+                                      child: const Text('Cancel'),
+                                    ),
+                                    ElevatedButton(
+                                      style: ElevatedButton.styleFrom(
+                                        backgroundColor: const Color(0xFFE53935),
+                                        foregroundColor: Colors.white,
+                                      ),
+                                      onPressed: () => Navigator.pop(context, true),
+                                      child: const Text('Delete'),
+                                    ),
+                                  ],
+                                ),
+                              );
+                            },
+                            onDismissed: (direction) async {
+                              await ref.read(accountsProvider.notifier).deleteAccount(account.id!);
+                            },
+                            child: cardItem,
+                          );
+                        },
                       ),
                     ),
 
