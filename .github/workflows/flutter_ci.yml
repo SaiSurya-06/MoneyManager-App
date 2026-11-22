@@ -128,11 +128,11 @@ jobs:
           if [ -n "$KEYSTORE_BASE64" ]; then
             echo "$KEYSTORE_BASE64" | base64 -d > android/app/money_manager.keystore
             cat <<EOF > android/key.properties
-            storePassword=${STORE_PASSWORD}
-            keyPassword=${KEY_PASSWORD}
-            keyAlias=${KEY_ALIAS}
-            storeFile=money_manager.keystore
-            EOF
+storePassword=${STORE_PASSWORD}
+keyPassword=${KEY_PASSWORD}
+keyAlias=${KEY_ALIAS}
+storeFile=money_manager.keystore
+EOF
             echo "Release keystore decoded and key.properties configured."
           else
             echo "::warning::RELEASE_KEYSTORE_BASE64 secret is not configured. Release APK build may be unsigned."
