@@ -82,7 +82,10 @@ android {
             applicationIdSuffix ".debug"
         }
         release {
-            signingConfig = signingConfigs.release
+            def releaseStore = signingConfigs.release.storeFile
+            if (releaseStore != null && releaseStore.exists()) {
+                signingConfig = signingConfigs.release
+            }
             proguardFiles getDefaultProguardFile('proguard-android-optimize.txt'), 'proguard-rules.pro'
         }
     }
