@@ -2,186 +2,132 @@ name: Flutter CI/CD
 
 on:
   push:
-    branches: [main, master, develop, 'feature/**']
+    branches: [main, master, develop, 'feature/**', 'fix/**']
   pull_request:
-    branches: [main, master, develop, 'feature/**']
+    branches: [main, master, develop]
   workflow_dispatch:
     inputs:
-      create_release:
-        description: 'Publish GitHub Release'
-        required: false
-        default: true
+      publish_release:
+        description: 'Publish a signed APK from the default branch'
         type: boolean
+        default: false
 
-# Cancel any in-progress run on the same branch when a newer push arrives
+permissions:
+  contents: read
+
 concurrency:
-  group: ${{ github.workflow }}-${{ github.ref }}
-  cancel-in-progress: true
+  group: flutter-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: false
+
+env:
+  FLUTTER_VERSION: '3.27.4'
+  ANDROID_BUILD_TOOLS: '34.0.0'
 
 jobs:
-  # ─────────────────────────────────────────────────────────────────
-  # CI ─ Runs on every push, PR, and manual dispatch
-  # ─────────────────────────────────────────────────────────────────
   ci:
-    name: 🔍 Analyze & Test
+    name: Analyze, test, and build debug APK
     runs-on: ubuntu-latest
-
     steps:
-      - name: ⬇️ Checkout
-        uses: actions/checkout@v4
-
-      - name: ☕ Set up Java 17
-        uses: actions/setup-java@v5
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: actions/setup-java@b6effb05e454b25005698d916606bdc6ffcbf961 # v5
         with:
-          distribution: zulu
+          distribution: temurin
           java-version: '17'
-
-      - name: 🐦 Set up Flutter (3.27.4)
-        uses: subosito/flutter-action@v2
+      - uses: subosito/flutter-action@1a449444c387b1966244ae4d4f8c696479add0b2 # v2
         with:
-          flutter-version: '3.27.4'
-          channel: 'stable'
+          flutter-version: ${{ env.FLUTTER_VERSION }}
+          channel: stable
           cache: true
+      - uses: android-actions/setup-android@9fc6c4e9069bf8d3d10b2204b1fb8f6ef7065407 # v3
+        with:
+          packages: platform-tools platforms;android-34 build-tools;34.0.0 ndk;27.0.12077973
+      - name: Install SQLite test dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libsqlite3-dev
+      - run: flutter pub get --enforce-lockfile
+      - run: flutter analyze --no-pub --fatal-infos
+      - run: flutter test --no-pub
+      - run: flutter build apk --debug --no-pub
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: MoneyManager-debug-${{ github.run_number }}
+          path: build/app/outputs/flutter-apk/app-debug.apk
+          if-no-files-found: error
+          retention-days: 14
 
-      - name: 📦 Install dependencies
-        run: flutter pub get
-
-      - name: 🔍 Analyze
-        run: flutter analyze --fatal-infos
-
-      - name: 🧪 Run tests
-        run: flutter test
-
-  # ─────────────────────────────────────────────────────────────────
-  # CD ─ Runs on push to main / master or manual workflow_dispatch
-  # Produces signed Release APK (+ AAB) with project keystore.
-  # ─────────────────────────────────────────────────────────────────
-  cd:
-    name: 📦 Build & Release
-    runs-on: ubuntu-latest
+  release:
+    name: Sign and publish APK
     needs: ci
-    if: |
-      (github.event_name == 'push' && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/master' || startsWith(github.ref, 'refs/heads/feature/'))) ||
-      github.event_name == 'workflow_dispatch'
-
+    if: github.event_name == 'workflow_dispatch' && inputs.publish_release && github.ref_name == github.event.repository.default_branch && github.ref_type == 'branch'
+    runs-on: ubuntu-latest
+    environment: android-release
     permissions:
       contents: write
-
     steps:
-      - name: ⬇️ Checkout
-        uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: actions/setup-java@b6effb05e454b25005698d916606bdc6ffcbf961 # v5
         with:
-          fetch-depth: 0
-
-      - name: ☕ Set up Java 17
-        uses: actions/setup-java@v5
-        with:
-          distribution: zulu
+          distribution: temurin
           java-version: '17'
-
-      - name: 📱 Set up Android NDK (r27b)
-        uses: nttld/setup-ndk@v1
-        id: setup-ndk
+      - uses: subosito/flutter-action@1a449444c387b1966244ae4d4f8c696479add0b2 # v2
         with:
-          ndk-version: r27b
-          local-cache: true
-          link-to-sdk: true
-
-      - name: 🐘 Set up Gradle cache
-        uses: gradle/actions/setup-gradle@v4
-
-      - name: 🐦 Set up Flutter (3.27.4)
-        uses: subosito/flutter-action@v2
-        with:
-          flutter-version: '3.27.4'
-          channel: 'stable'
+          flutter-version: ${{ env.FLUTTER_VERSION }}
+          channel: stable
           cache: true
-
-      - name: 📦 Install dependencies
-        run: flutter pub get
-
-      # ── Derive version & auto-increment versionCode ──────────────
-      - name: 🏷️ Derive version
-        id: version
-        run: |
-          VERSION=$(grep '^version:' pubspec.yaml | sed 's/version: //' | sed 's/+.*//' | tr -d '[:space:]')
-          VERSION_CODE=${{ github.run_number }}
-          TAG="v${VERSION}-build${VERSION_CODE}"
-          echo "tag=${TAG}"           >> "$GITHUB_OUTPUT"
-          echo "version=${VERSION}"   >> "$GITHUB_OUTPUT"
-          echo "code=${VERSION_CODE}" >> "$GITHUB_OUTPUT"
-          echo "flutter.versionCode=${VERSION_CODE}" >> android/local.properties
-          echo "flutter.versionName=${VERSION}"      >> android/local.properties
-          if [ -n "${ANDROID_NDK_HOME}" ]; then
-            echo "ndk.dir=${ANDROID_NDK_HOME}"       >> android/local.properties
-          fi
-
-      # ── Restore Keystore & key.properties ────────────────────────
-      - name: 🔑 Decode Keystore & Restore key.properties
+      - uses: android-actions/setup-android@9fc6c4e9069bf8d3d10b2204b1fb8f6ef7065407 # v3
+        with:
+          packages: platform-tools platforms;android-34 build-tools;34.0.0 ndk;27.0.12077973
+      - run: flutter pub get --enforce-lockfile
+      - name: Build and verify signed APK
+        id: apk
         env:
-          KEYSTORE_BASE64: ${{ secrets.RELEASE_KEYSTORE_BASE64 }}
-          STORE_PASSWORD: ${{ secrets.STORE_PASSWORD }}
-          KEY_PASSWORD: ${{ secrets.KEY_PASSWORD }}
-          KEY_ALIAS: ${{ secrets.KEY_ALIAS }}
+          RELEASE_KEYSTORE_BASE64: ${{ secrets.RELEASE_KEYSTORE_BASE64 }}
+          RELEASE_STORE_PASSWORD: ${{ secrets.STORE_PASSWORD }}
+          RELEASE_KEY_PASSWORD: ${{ secrets.KEY_PASSWORD }}
+          RELEASE_KEY_ALIAS: ${{ secrets.KEY_ALIAS }}
+          EXPECTED_CERT_SHA256: ${{ vars.RELEASE_CERT_SHA256 }}
         run: |
-          mkdir -p android/app
-          if [ -n "$KEYSTORE_BASE64" ]; then
-            echo "$KEYSTORE_BASE64" | base64 -d > android/app/money_manager.keystore
-            cat <<EOF > android/key.properties
-storePassword=${STORE_PASSWORD}
-keyPassword=${KEY_PASSWORD}
-keyAlias=${KEY_ALIAS}
-storeFile=money_manager.keystore
-EOF
-            echo "Release keystore decoded and key.properties configured."
-          else
-            echo "::warning::RELEASE_KEYSTORE_BASE64 secret is not configured. Release APK build may be unsigned."
-          fi
+          : "${RELEASE_KEYSTORE_BASE64:?Configure RELEASE_KEYSTORE_BASE64 in android-release}"
+          : "${RELEASE_STORE_PASSWORD:?Configure STORE_PASSWORD in android-release}"
+          : "${RELEASE_KEY_PASSWORD:?Configure KEY_PASSWORD in android-release}"
+          : "${RELEASE_KEY_ALIAS:?Configure KEY_ALIAS in android-release}"
+          : "${EXPECTED_CERT_SHA256:?Configure RELEASE_CERT_SHA256 in android-release}"
 
-      # ── Build exactly ONE release APK ────────────────────────────
-      - name: 🔨 Build release APK
-        run: flutter build apk --release --android-skip-build-dependency-validation
+          expected="$(printf '%s' "$EXPECTED_CERT_SHA256" | tr -d ':' | tr '[:upper:]' '[:lower:]')"
+          [[ "$expected" =~ ^[a-f0-9]{64}$ ]] || { echo 'Invalid release certificate fingerprint'; exit 1; }
+          retired='91104c4a2ce8535d81f74cf8e5a6d3dcbe99a9ee181d32932fc7164000b78ada'
+          [[ "$expected" != "$retired" ]] || { echo 'The previous exposed release certificate has been retired'; exit 1; }
 
-      # ── Rename to a human-friendly filename ──────────────────────
-      - name: 📋 Rename APK
+          export RELEASE_KEYSTORE_PATH="$RUNNER_TEMP/money-manager-release.keystore"
+          trap 'rm -f "$RELEASE_KEYSTORE_PATH"' EXIT
+          umask 077
+          printf '%s' "$RELEASE_KEYSTORE_BASE64" | base64 --decode > "$RELEASE_KEYSTORE_PATH"
+
+          version="$(awk '/^version:/ {split($2, fields, "+"); print fields[1]}' pubspec.yaml)"
+          [[ "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]] || { echo 'Invalid release version'; exit 1; }
+          tag="v${version}-build${GITHUB_RUN_NUMBER}"
+          apk="MoneyManager-${tag}.apk"
+          flutter build apk --release --no-pub --build-name="$version" --build-number="$GITHUB_RUN_NUMBER"
+
+          source="build/app/outputs/flutter-apk/app-release.apk"
+          report="$("$ANDROID_HOME/build-tools/$ANDROID_BUILD_TOOLS/apksigner" verify --print-certs "$source")"
+          actual="$(awk -F ': ' '/certificate SHA-256 digest:/ {print tolower($2)}' <<< "$report")"
+          [[ "$actual" == "$expected" ]] || { echo 'APK signing certificate does not match the approved fingerprint'; exit 1; }
+          badging="$("$ANDROID_HOME/build-tools/$ANDROID_BUILD_TOOLS/aapt" dump badging "$source")"
+          grep -F "package: name='com.example.money_manager' versionCode='$GITHUB_RUN_NUMBER' versionName='$version'" <<< "$badging"
+
+          mkdir -p dist
+          cp "$source" "dist/$apk"
+          (cd dist && sha256sum "$apk" > "$apk.sha256")
+          printf 'tag=%s\nfile=%s\n' "$tag" "$apk" >> "$GITHUB_OUTPUT"
+
+      - name: Publish verified APK
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ steps.apk.outputs.tag }}
+          RELEASE_APK: ${{ steps.apk.outputs.file }}
         run: |
-          mv build/app/outputs/flutter-apk/app-release.apk \
-             build/app/outputs/flutter-apk/MoneyManager-${{ steps.version.outputs.tag }}.apk
-
-      # ── Upload as workflow artifact ──────────────────────────────
-      - name: ⬆️ Upload APK artifact
-        uses: actions/upload-artifact@v4
-        with:
-          name: MoneyManager-${{ steps.version.outputs.tag }}
-          path: build/app/outputs/flutter-apk/MoneyManager-${{ steps.version.outputs.tag }}.apk
-          retention-days: 30
-
-      # ── Create GitHub Release ────────────────────────────────────
-      - name: 🚀 Create GitHub Release
-        if: github.event_name != 'workflow_dispatch' || inputs.create_release == true
-        uses: softprops/action-gh-release@v2
-        continue-on-error: true
-        with:
-          tag_name: ${{ steps.version.outputs.tag }}
-          name: "Money Manager ${{ steps.version.outputs.version }} (Build ${{ steps.version.outputs.code }}) 🚀"
-          body: |
-            ## 📦 Money Manager — Automated Release
-
-            **Build Tag:** `${{ steps.version.outputs.tag }}`
-            **Version Code:** `${{ steps.version.outputs.code }}`
-            **Commit:** `${{ github.sha }}`
-            **Branch:** `${{ github.ref_name }}`
-
-            ---
-
-            ### 📲 Downloads & Installation
-            1. Download `MoneyManager-${{ steps.version.outputs.tag }}.apk` below.
-            2. Tap the APK to install or update the app on your Android device (no uninstall required).
-
-            ### ✅ Automated Verification
-            - [x] Static Analysis (`flutter analyze --fatal-infos`) passed.
-            - [x] All 48 unit & integration tests passed.
-            - [x] Single release APK signed with production keystore.
-          files: build/app/outputs/flutter-apk/MoneyManager-${{ steps.version.outputs.tag }}.apk
-          draft: false
-          prerelease: false
+          gh release create "$RELEASE_TAG" "dist/$RELEASE_APK" "dist/$RELEASE_APK.sha256" \
+            --target "$GITHUB_SHA" --title "Money Manager $RELEASE_TAG" --generate-notes --draft
+          gh release edit "$RELEASE_TAG" --draft=false

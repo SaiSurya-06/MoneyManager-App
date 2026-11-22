@@ -21,6 +21,12 @@ import '../core/database/daos/account_dao.dart';
 import '../core/database/daos/transaction_dao.dart';
 import '../core/utils/app_logger.dart';
 
+String _encryptSnapshot((String, String, String) input) =>
+    EncryptionService.instance.encrypt(input.$1, input.$2, input.$3);
+
+String _decryptSnapshot((String, String, String) input) =>
+    EncryptionService.instance.decrypt(input.$1, input.$2, input.$3);
+
 class PartnerTransaction {
   final String title;
   final double amount;
@@ -152,6 +158,7 @@ class PartnerSyncState {
   final String? errorMessage;
   final String? syncPassword;
   final String? syncSalt;
+  final bool partnerAuthenticated;
   final List<ConflictRecord> conflicts;
   final int partnerVersion; // For incremental sync
   final double syncProgress; // 0.0 to 1.0
@@ -172,6 +179,7 @@ class PartnerSyncState {
     this.errorMessage,
     this.syncPassword,
     this.syncSalt,
+    this.partnerAuthenticated = false,
     this.conflicts = const [],
     this.partnerVersion = 0,
     this.syncProgress = 0.0,
@@ -193,6 +201,7 @@ class PartnerSyncState {
     String? errorMessage,
     String? syncPassword,
     String? syncSalt,
+    bool? partnerAuthenticated,
     List<ConflictRecord>? conflicts,
     int? partnerVersion,
     double? syncProgress,
@@ -213,6 +222,7 @@ class PartnerSyncState {
       errorMessage: errorMessage,
       syncPassword: syncPassword ?? this.syncPassword,
       syncSalt: syncSalt ?? this.syncSalt,
+      partnerAuthenticated: partnerAuthenticated ?? this.partnerAuthenticated,
       conflicts: conflicts ?? this.conflicts,
       partnerVersion: partnerVersion ?? this.partnerVersion,
       syncProgress: syncProgress ?? this.syncProgress,
@@ -265,6 +275,7 @@ class PartnerSyncNotifier extends StateNotifier<PartnerSyncState> {
         'lastSyncTime': state.lastSyncTime?.toIso8601String(),
         'syncPassword': state.syncPassword,
         'syncSalt': state.syncSalt,
+        'partnerAuthenticated': state.partnerAuthenticated,
         'conflicts': state.conflicts.map((c) => c.toMap()).toList(),
         'partnerVersion': state.partnerVersion,
       });
@@ -308,6 +319,7 @@ class PartnerSyncNotifier extends StateNotifier<PartnerSyncState> {
               : null,
           syncPassword: data['syncPassword'] as String?,
           syncSalt: data['syncSalt'] as String?,
+          partnerAuthenticated: data['partnerAuthenticated'] == true,
           conflicts: conflictsList,
           partnerVersion: data['partnerVersion'] as int? ?? 0,
         );
@@ -457,6 +469,7 @@ class PartnerSyncNotifier extends StateNotifier<PartnerSyncState> {
       return null;
     }
 
+    final previousState = state;
     final code = _generateRoomCode();
     final secretPassword = _generateRandomKey(16);
     final secretSalt = _generateRandomKey(16);
@@ -485,12 +498,14 @@ class PartnerSyncNotifier extends StateNotifier<PartnerSyncState> {
       syncSalt: secretSalt,
     );
 
-    await _saveStateLocally();
-    _startSyncTimer();
-    
-    // Perform initial upload and await completion so server has host data ready
-    await syncNow();
+    // Publish the invite after the host snapshot is ready to download.
+    if (!await syncNow()) {
+      final error = state.errorMessage ?? 'Could not upload the first snapshot.';
+      state = previousState.copyWith(errorMessage: error);
+      return null;
+    }
 
+    _startSyncTimer();
     return inviteCode;
   }
 
@@ -616,18 +631,28 @@ class PartnerSyncNotifier extends StateNotifier<PartnerSyncState> {
           decoded = changes;
           state = state.copyWith(partnerVersion: version);
         }
-        if (decoded.containsKey('encrypted') && state.syncPassword != null && state.syncPassword!.isNotEmpty) {
-          try {
-            final ciphertext = decoded['encrypted'] as String;
-            final decryptedJson = EncryptionService.instance.decrypt(
-              ciphertext,
-              state.syncPassword!,
-              state.syncSalt ?? 'default_salt',
-            );
-            decoded = jsonDecode(decryptedJson) as Map<String, dynamic>;
-          } catch (e) {
-            throw Exception('Decryption failed: check link keys. $e');
+        final signature = decoded['signature'];
+        final ciphertext = decoded['encrypted'];
+        final password = state.syncPassword;
+        final salt = state.syncSalt ?? 'default_salt';
+        final partnerSlot = state.mySlot == 'A' ? 'B' : 'A';
+        final sender = '${state.roomCode}__${partnerSlot}_data';
+        final encryption = EncryptionService.instance;
+        if (signature != null || state.partnerAuthenticated) {
+          if (signature is! String ||
+              ciphertext is! String ||
+              password == null ||
+              password.isEmpty ||
+              !encryption.verifySyncSnapshot(ciphertext, password, sender, signature)) {
+            throw const FormatException('Partner snapshot authentication failed.');
           }
+        }
+        if (ciphertext != null) {
+          if (ciphertext is! String || password == null || password.isEmpty) {
+            throw const FormatException('Missing keys to decrypt partner snapshot.');
+          }
+          final json = await compute(_decryptSnapshot, (ciphertext, password, salt));
+          decoded = jsonDecode(json) as Map<String, dynamic>;
         }
 
         final profile = decoded['profile'] as Map<String, dynamic>? ?? {};
@@ -701,6 +726,7 @@ class PartnerSyncNotifier extends StateNotifier<PartnerSyncState> {
           lastSyncTime: DateTime.now(),
           conflicts: detectedConflicts,
           partnerVersion: state.partnerVersion + 1,
+          partnerAuthenticated: signature != null,
           syncProgress: 1.0,
           syncStatusMessage: 'Sync completed successfully!',
         );
@@ -761,18 +787,13 @@ class PartnerSyncNotifier extends StateNotifier<PartnerSyncState> {
     final currency = profile?.preferredCurrency ?? 'USD';
     final themePref = profile?.themePreference ?? 'dark';
 
-    // Filter shared accounts (fallback to all active accounts if none marked explicitly)
-    var sharedAccounts = accounts.where((a) => a.isShared).toList();
-    if (sharedAccounts.isEmpty && accounts.isNotEmpty) {
-      sharedAccounts = accounts;
-    }
+    final sharedAccounts = accounts.where((account) => account.isShared).toList();
     final sharedAccountIds = sharedAccounts.map((a) => a.id).toSet();
 
     // Map categories for details
     final categoryMap = {for (var c in categories) c.id: c};
 
     // Filter transactions: must be non-private and belong to shared accounts
-    // Limit to last 100 to keep payload small and sync fast
     final sortedTxs = List<Transaction>.from(transactions)
       ..sort((a, b) => b.date.compareTo(a.date));
 
@@ -809,10 +830,20 @@ class PartnerSyncNotifier extends StateNotifier<PartnerSyncState> {
 
     final rawJson = jsonEncode(payloadMap);
 
-    // Compress with gzip then base64url-encode — reduces payload by ~70-80%
-    final compressed = _compressPayload(rawJson);
-    AppLogger.i('Payload: raw=${rawJson.length} chars → compressed=${compressed.length} chars', tag: 'PartnerSync');
-    return compressed;
+    final password = state.syncPassword;
+    final salt = state.syncSalt ?? 'default_salt';
+    // Legacy invite codes without keys keep their existing transport.
+    if (password == null || password.isEmpty) return _compressPayload(rawJson);
+
+    final sender = '${state.roomCode}__${state.mySlot}_data';
+    final ciphertext = await compute(_encryptSnapshot, (rawJson, password, salt));
+    final signature = EncryptionService.instance.signSyncSnapshot(
+      ciphertext, password, sender,
+    );
+    return _compressPayload(jsonEncode({
+      'encrypted': ciphertext,
+      'signature': signature,
+    }));
   }
 
   /// Gzip-compress text and return URL-safe base64 string

@@ -57,7 +57,7 @@ class _ChatbotPageState extends ConsumerState<ChatbotPage> {
   final ScrollController _scrollController = ScrollController();
   final ConversationMemory _conversationMemory = ConversationMemory();
   bool _isTyping = false;
-  bool _useOnlineAI = true;
+  bool _useOnlineAI = false;
 
   @override
   void initState() {
@@ -322,12 +322,15 @@ class _ChatbotPageState extends ConsumerState<ChatbotPage> {
     });
     _scrollToBottom();
 
+    final useOnlineForRequest = _useOnlineAI;
     await _saveMessageToDb(text, true, null);
 
     ExecutionPlan? parsedPlan;
     bool isFallback = false;
 
-    final Planner planner = _useOnlineAI ? GeminiPlanner() : RulePlanner();
+    final Planner planner = useOnlineForRequest && _useOnlineAI && mounted
+        ? GeminiPlanner()
+        : RulePlanner();
     try {
       parsedPlan = await planner.plan(text, _conversationMemory);
     } catch (e) {
@@ -351,7 +354,9 @@ class _ChatbotPageState extends ConsumerState<ChatbotPage> {
         DecisionEngine(),
         ScenarioEngine(),
         EvaluationEngine(),
-        CoachingEngine(useOnline: _useOnlineAI && !isFallback),
+        CoachingEngine(
+          useOnline: useOnlineForRequest && _useOnlineAI && mounted && !isFallback,
+        ),
       ],
     );
 
@@ -426,6 +431,34 @@ class _ChatbotPageState extends ConsumerState<ChatbotPage> {
     return '';
   }
 
+  Future<void> _setOnlineMode(bool enabled) async {
+    if (enabled) {
+      final confirmed = await showDialog<bool>(
+        context: context,
+        builder: (context) => AlertDialog(
+          title: const Text('Use cloud assistant?'),
+          content: const Text(
+            'Gemini may receive your question and relevant financial data, '
+            'including transaction dates, titles, amounts, and categories. '
+            'Cloud mode is enabled only while this screen stays open.',
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.of(context).pop(false),
+              child: const Text('Stay offline'),
+            ),
+            FilledButton(
+              onPressed: () => Navigator.of(context).pop(true),
+              child: const Text('Enable cloud mode'),
+            ),
+          ],
+        ),
+      );
+      if (!mounted || confirmed != true) return;
+    }
+    setState(() => _useOnlineAI = enabled);
+  }
+
   @override
   Widget build(BuildContext context) {
     final isDark = Theme.of(context).brightness == Brightness.dark;
@@ -461,7 +494,7 @@ class _ChatbotPageState extends ConsumerState<ChatbotPage> {
                 ),
                 const SizedBox(width: 6),
                 Text(
-                  isOffline ? "Investigative OS (Offline)" : "On-Device Financial OS (ADK)",
+                  isOffline ? "Offline assistant" : "Gemini cloud assistant",
                   style: const TextStyle(
                     fontSize: 10,
                     color: Colors.grey,
@@ -485,19 +518,15 @@ class _ChatbotPageState extends ConsumerState<ChatbotPage> {
           Row(
             children: [
               Text(
-                "Offline",
+                "Cloud",
                 style: TextStyle(
                   fontSize: 11,
                   color: isDark ? Colors.white70 : Colors.black87,
                 ),
               ),
               Switch(
-                value: !_useOnlineAI,
-                onChanged: (val) {
-                  setState(() {
-                    _useOnlineAI = !val;
-                  });
-                },
+                value: _useOnlineAI,
+                onChanged: _setOnlineMode,
                 activeColor: Colors.tealAccent,
               ),
             ],

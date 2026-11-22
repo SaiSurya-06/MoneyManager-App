@@ -250,8 +250,40 @@ class BackupService {
     return jsonEncode(data);
   }
 
+  List<Map<String, dynamic>> _restoreDiagnosticOwners(
+    List<Map<String, dynamic>> diagnostics,
+    List<Map<String, dynamic>> sourceProfiles,
+    List<Map<String, dynamic>> deviceProfiles,
+  ) {
+    return diagnostics.map((row) {
+      final sourceId = row['user_profile_id'];
+      final source = sourceProfiles.where((profile) => profile['id'] == sourceId);
+      final matches = source.length == 1
+          ? deviceProfiles.where((profile) => profile['name'] == source.single['name'])
+          : deviceProfiles.where((profile) => profile['id'] == sourceId);
+      final int targetId;
+      if (sourceProfiles.length == 1 &&
+          source.length == 1 &&
+          deviceProfiles.length == 1) {
+        // A new phone can have a different profile name and id.
+        targetId = deviceProfiles.single['id'] as int;
+      } else if (matches.length == 1) {
+        targetId = matches.single['id'] as int;
+      } else {
+        throw const FormatException(
+          'A backup profile with diagnostic records cannot be matched. '
+          'Set up matching profile names on this device before restoring.',
+        );
+      }
+      return {...row, 'user_profile_id': targetId};
+    }).toList();
+  }
+
   Future<void> importDataFromJson(String jsonStr) async {
-    final Map<String, dynamic> data = jsonDecode(jsonStr);
+    final data = jsonDecode(jsonStr);
+    if (data is! Map<String, dynamic>) {
+      throw const FormatException('The backup must contain a JSON object.');
+    }
     final db = await AppDatabase.instance.database;
 
     await db.transaction((txn) async {
@@ -275,29 +307,45 @@ class BackupService {
         'balance_audit_log',
       ];
 
-      for (var table in tables) {
-        if (data.containsKey(table)) {
-          try {
-            await txn.delete(table);
-            final List<dynamic> rows = data[table];
-            for (var row in rows) {
-              if (row is Map<String, dynamic>) {
-                await txn.insert(table, row);
-              }
-            }
-          } catch (_) {}
+      final imported = <String, List<Map<String, dynamic>>>{};
+      for (final table in tables) {
+        if (!data.containsKey(table)) continue;
+        final rows = data[table];
+        if (rows is! List || rows.any((row) => row is! Map<String, dynamic>)) {
+          throw FormatException('Invalid rows in backup table $table.');
+        }
+        imported[table] = rows.cast<Map<String, dynamic>>();
+      }
+      final sourceProfiles = imported.remove('user_profile') ?? const [];
+      if (imported.isEmpty) {
+        throw const FormatException('The backup contains no supported financial tables.');
+      }
+      final diagnostics = imported['diagnostic_profile'];
+      if (diagnostics != null && diagnostics.isNotEmpty) {
+        imported['diagnostic_profile'] = _restoreDiagnosticOwners(
+          diagnostics,
+          sourceProfiles,
+          await txn.query('user_profile'),
+        );
+      }
+
+      // Remove dependent rows before their parent rows, then load parents first.
+      for (final table in imported.keys.toList().reversed) {
+        await txn.delete(table);
+      }
+      for (final entry in imported.entries) {
+        for (final row in entry.value) {
+          await txn.insert(entry.key, row);
         }
       }
+      await AppDatabase.instance.recalculateAllBalances(txn);
     });
-
-    // Reconcile and recalculate balances
-    await AppDatabase.instance.recalculateAllBalances(db);
   }
 
   Future<String> exportDataToCsv() async {
     final db = await AppDatabase.instance.database;
     final List<List<dynamic>> csvData = [
-      ['Date', 'Title', 'Amount', 'Type', 'Category', 'Account', 'Note', 'Recurrence', 'Recurrence End Date', 'Is Private']
+      ['Date', 'Title', 'Amount', 'Type', 'Category', 'Account', 'Note', 'Recurrence', 'Recurrence End Date', 'Is Private', 'Destination Account', 'Deduct from Budget']
     ];
 
     final txs = await db.query('transaction_log');
@@ -324,6 +372,10 @@ class BackupService {
       final recEnd = tx['recurrence_end_date'] as String? ?? '';
       final isPrivate = (tx['is_private'] as int? ?? 0) == 1 ? 'yes' : 'no';
 
+      final destinationId = tx['transfer_to_account_id'] as int? ??
+          AppDatabase.parseCreditCardTargetAccountId(note) ??
+          AppDatabase.parseDestAccountId(note);
+
       csvData.add([
         date,
         title,
@@ -334,7 +386,9 @@ class BackupService {
         note,
         recurrence,
         recEnd,
-        isPrivate
+        isPrivate,
+        accountMap[destinationId] ?? '',
+        (tx['is_budget_included'] as int? ?? 1) == 1 ? 'yes' : 'no',
       ]);
     }
 
@@ -343,7 +397,6 @@ class BackupService {
 
   Future<void> importDataFromCsv(String csvStr) async {
     final List<List<dynamic>> rows = const CsvToListConverter().convert(csvStr);
-    if (rows.isEmpty) return;
 
     int headerRowIndex = -1;
     for (int i = 0; i < rows.length; i++) {
@@ -364,24 +417,46 @@ class BackupService {
 
     final db = await AppDatabase.instance.database;
 
-    final categoryList = await db.query('category');
-    final Map<String, int> categoryNameToId = {
-      for (var row in categoryList) (row['name'] as String).toLowerCase().trim(): row['id'] as int
-    };
-    int otherCategoryId = categoryNameToId['other'] ?? CategoryDao.otherCategoryId;
-
-    final accountList = await db.query('account');
-    final Map<String, int> accountNameToId = {
-      for (var row in accountList) (row['name'] as String).toLowerCase().trim(): row['id'] as int
-    };
-
     await db.transaction((txn) async {
+      final categoryList = await txn.query('category');
+      final Map<String, int> categoryNameToId = {
+        for (var row in categoryList) (row['name'] as String).toLowerCase().trim(): row['id'] as int
+      };
+      final otherCategoryId = categoryNameToId['other'] ?? CategoryDao.otherCategoryId;
+
+      final accountList = await txn.query('account');
+      final Map<String, int> accountNameToId = {
+        for (var row in accountList) (row['name'] as String).toLowerCase().trim(): row['id'] as int
+      };
+
+      Future<int> findOrCreateAccount(String name) async {
+        final key = name.toLowerCase();
+        final existing = accountNameToId[key];
+        if (existing != null) return existing;
+        final id = await txn.insert('account', {
+          'name': name,
+          'type': 'Bank',
+          'balance': 0.0,
+          'balance_minor': 0,
+          'initial_balance': 0.0,
+          'initial_balance_minor': 0,
+          'icon': 'account_balance',
+          'color': '1E88E5',
+          'is_shared': 0,
+          'created_at': DateTime.now().toIso8601String(),
+        });
+        accountNameToId[key] = id;
+        return id;
+      }
+
       await txn.delete('transaction_log');
-      await txn.rawUpdate('UPDATE account SET balance = 0.0, balance_minor = 0');
 
       for (int i = headerRowIndex + 1; i < rows.length; i++) {
         final row = rows[i];
-        if (row.length < 6) continue;
+        if (row.every((cell) => cell.toString().trim().isEmpty)) continue;
+        if (row.length < 6) {
+          throw FormatException('Incomplete transaction on CSV row ${i + 1}.');
+        }
 
         final dateStr = row[0].toString().trim();
         final title = row[1].toString().trim();
@@ -394,41 +469,42 @@ class BackupService {
         final recEndStr = row.length > 8 ? row[8].toString().trim() : '';
         final isPrivateStr = row.length > 9 ? row[9].toString().trim().toLowerCase() : 'no';
 
-        if (title.isEmpty || amount <= 0 || !['income', 'expense', 'transfer'].contains(type)) {
-          continue;
+        if (title.isEmpty ||
+            accountName.isEmpty ||
+            !amount.isFinite ||
+            amount <= 0 ||
+            !['income', 'expense', 'transfer'].contains(type)) {
+          throw FormatException('Invalid transaction on CSV row ${i + 1}.');
         }
 
-        int categoryId = categoryNameToId[categoryName.toLowerCase()] ?? otherCategoryId;
+        final categoryId = categoryNameToId[categoryName.toLowerCase()] ?? otherCategoryId;
 
-        int? accountId = accountNameToId[accountName.toLowerCase()];
-        if (accountId == null) {
-          accountId = await txn.insert('account', {
-            'name': accountName,
-            'type': 'Bank',
-            'balance': 0.0,
-            'balance_minor': 0,
-            'initial_balance': 0.0,
-            'initial_balance_minor': 0,
-            'icon': 'account_balance',
-            'color': '1E88E5',
-            'is_shared': 1,
-            'created_at': DateTime.now().toIso8601String(),
-          });
-          accountNameToId[accountName.toLowerCase()] = accountId;
+        final accountId = await findOrCreateAccount(accountName);
+        final destinationName = row.length > 10 ? row[10].toString().trim() : '';
+        final destinationId = destinationName.isNotEmpty
+            ? await findOrCreateAccount(destinationName)
+            : AppDatabase.parseCreditCardTargetAccountId(note) ??
+                AppDatabase.parseDestAccountId(note);
+        if (type == 'transfer' &&
+            (destinationId == null ||
+                destinationId == accountId ||
+                !accountNameToId.containsValue(destinationId))) {
+          throw FormatException('Missing or invalid transfer destination on CSV row ${i + 1}.');
         }
+        final budgetIncluded =
+            row.length <= 11 || row[11].toString().trim().toLowerCase() != 'no';
 
-        DateTime date;
-        try {
-          date = DateTime.parse(dateStr);
-        } catch (_) {
-          date = DateTime.now();
+        final date = DateTime.tryParse(dateStr);
+        if (date == null ||
+            (RegExp(r'^\d{4}-\d{2}-\d{2}$').hasMatch(dateStr) &&
+                date.toIso8601String().substring(0, 10) != dateStr)) {
+          throw FormatException('Invalid date on CSV row ${i + 1}.');
         }
-
-        DateTime? recurrenceEndDate;
-        if (recurrence != 'none' && recEndStr.isNotEmpty) {
-          try {
-            recurrenceEndDate = DateTime.parse(recEndStr);
-          } catch (_) {}
+        final recurrenceEndDate = recEndStr.isEmpty
+            ? null
+            : DateTime.tryParse(recEndStr);
+        if (recEndStr.isNotEmpty && recurrenceEndDate == null) {
+          throw FormatException('Invalid recurrence end date on CSV row ${i + 1}.');
         }
 
         final isPrivate = isPrivateStr == 'yes' || isPrivateStr == 'true' || isPrivateStr == '1';
@@ -446,12 +522,13 @@ class BackupService {
           'recurrence': recurrence,
           'recurrence_end_date': recurrenceEndDate?.toIso8601String().substring(0, 10),
           'is_private': isPrivate ? 1 : 0,
+          'transfer_to_account_id': destinationId,
+          'is_budget_included': budgetIncluded ? 1 : 0,
           'created_at': DateTime.now().toIso8601String(),
         });
       }
+      await AppDatabase.instance.recalculateAllBalances(txn);
     });
-
-    await AppDatabase.instance.recalculateAllBalances(db);
   }
 
   // --- High-Level Local Backup & Restore Entry Points ---
@@ -492,7 +569,7 @@ class BackupService {
         final metadata = {
           'backup_created_at': DateTime.now().toIso8601String(),
           'app_version': '1.1.0',
-          'db_schema_version': '14',
+          'db_schema_version': AppDatabase.schemaVersion.toString(),
           'backup_format_version': '2.0',
           'preferred_currency': preferredCurrency,
         };
@@ -593,11 +670,11 @@ class BackupService {
         final versionResult = await db.rawQuery('PRAGMA user_version');
         final int userVersion = Sqflite.firstIntValue(versionResult) ?? 0;
 
-        if (userVersion > 14) {
+        if (userVersion > AppDatabase.schemaVersion) {
           return BackupValidationResult(
             isValid: false,
             schemaVersion: userVersion,
-            errorMessage: 'Backup was created by a newer version of Money Manager (v$userVersion). Current app supports up to v14. Please update the application.',
+            errorMessage: 'Backup was created by a newer version of Money Manager (v$userVersion). Current app supports up to v${AppDatabase.schemaVersion}. Please update the application.',
           );
         }
 
@@ -640,6 +717,8 @@ class BackupService {
           await importDataFromJson(content);
         } else if (format == 'csv') {
           await importDataFromCsv(content);
+        } else {
+          throw FormatException('Unsupported backup format: $format.');
         }
         return const RestoreResult(
           success: true,
@@ -655,12 +734,13 @@ class BackupService {
     }
 
     final dbFolder = await getApplicationDocumentsDirectory();
-    final tempDir = await getTemporaryDirectory();
-
     final localDbPath = p.join(dbFolder.path, 'money_manager.db');
     final activeDbFile = File(localDbPath);
-    final safetyBackupFile = File(p.join(tempDir.path, 'money_manager_pre_restore_safety_backup.db'));
-    final stageDbFile = File(p.join(tempDir.path, 'temp_restore_stage_${DateTime.now().millisecondsSinceEpoch}.db'));
+    final scratch = await dbFolder.createTemp('restore_');
+    final safetyBackupFile = File(p.join(scratch.path, 'previous.db'));
+    final stageDbFile = File(p.join(scratch.path, 'staged.db'));
+    var retainRecoveryCopy = false;
+    Database? staged;
 
     try {
       // -------------------------------------------------------------
@@ -675,48 +755,50 @@ class BackupService {
         );
       }
 
-      // -------------------------------------------------------------
-      // Step 2: Create a safety backup of active database
-      // -------------------------------------------------------------
-      if (await activeDbFile.exists()) {
-        try {
-          await AppDatabase.instance.checkpoint();
-        } catch (_) {}
-        await activeDbFile.copy(safetyBackupFile.path);
-
-        final activeWalFile = File('$localDbPath-wal');
-        if (await activeWalFile.exists()) {
-          await activeWalFile.copy('${safetyBackupFile.path}-wal');
-        }
-        final activeShmFile = File('$localDbPath-shm');
-        if (await activeShmFile.exists()) {
-          await activeShmFile.copy('${safetyBackupFile.path}-shm');
-        }
-      }
-
-      // -------------------------------------------------------------
-      // Step 3: Restore into temporary database & run migrations & reconcile balances
-      // -------------------------------------------------------------
-      if (await stageDbFile.exists()) await stageDbFile.delete();
-      final stageWal = File('${stageDbFile.path}-wal');
-      if (await stageWal.exists()) await stageWal.delete();
-      final stageShm = File('${stageDbFile.path}-shm');
-      if (await stageShm.exists()) await stageShm.delete();
-
       await backupFile.copy(stageDbFile.path);
 
-      final stageDb = await openDatabase(
+      final stageDb = staged = await openDatabase(
         stageDbFile.path,
-        version: 14,
+        version: AppDatabase.schemaVersion,
         onUpgrade: AppDatabase.instance.upgradeDatabase,
       );
 
       final quickCheck = await stageDb.rawQuery('PRAGMA quick_check');
       final isOk = quickCheck.isNotEmpty && quickCheck.first.values.first == 'ok';
       if (!isOk) {
-        await stageDb.close();
         throw Exception('Integrity check failed on staged migrated database.');
       }
+
+      // Backups carry financial data. Device-local PIN hashes and their
+      // secure-storage salts must stay paired on the device doing the restore.
+      final deviceDb = await AppDatabase.instance.database;
+      final deviceProfiles = await deviceDb.query('user_profile');
+      await stageDb.transaction((txn) async {
+        final sourceProfiles = await txn.query('user_profile');
+        final diagnosticTable = await txn.query(
+          'sqlite_master',
+          where: "type = 'table' AND name = 'diagnostic_profile'",
+        );
+        if (diagnosticTable.isNotEmpty) {
+          final diagnostics = _restoreDiagnosticOwners(
+            await txn.query('diagnostic_profile'),
+            sourceProfiles,
+            deviceProfiles,
+          );
+          for (final row in diagnostics) {
+            await txn.update(
+              'diagnostic_profile',
+              {'user_profile_id': row['user_profile_id']},
+              where: 'id = ?',
+              whereArgs: [row['id']],
+            );
+          }
+        }
+        await txn.delete('user_profile');
+        for (final profile in deviceProfiles) {
+          await txn.insert('user_profile', profile);
+        }
+      });
 
       // Reconcile and audit all balances
       await AppDatabase.instance.recalculateAllBalances(stageDb);
@@ -730,31 +812,41 @@ class BackupService {
         return '$name: ₹$balance';
       }).toList();
 
-      await stageDb.rawQuery('PRAGMA wal_checkpoint(TRUNCATE)');
-      await stageDb.close();
-
-      // -------------------------------------------------------------
-      // Step 4: Replace active database safely
-      // -------------------------------------------------------------
-      await AppDatabase.instance.close();
-
-      // Delete active WAL and SHM files to prevent corruption from leftover frames
-      final activeWal = File('$localDbPath-wal');
-      if (await activeWal.exists()) await activeWal.delete();
-      final activeShm = File('$localDbPath-shm');
-      if (await activeShm.exists()) await activeShm.delete();
-
-      // Copy stage file over active DB
-      await stageDbFile.copy(localDbPath);
-      await stageDbFile.delete();
-
-      // Re-open active database
-      await AppDatabase.instance.database;
-
-      // Clean up safety backup upon verified success
-      if (await safetyBackupFile.exists()) {
-        try { await safetyBackupFile.delete(); } catch (_) {}
+      final stageCheckpoint = await stageDb.rawQuery('PRAGMA wal_checkpoint(TRUNCATE)');
+      if (stageCheckpoint.single['busy'] != 0) {
+        throw StateError('Could not checkpoint the restored database.');
       }
+      await stageDb.close();
+      staged = null;
+
+      await AppDatabase.instance.replaceDatabaseFile(() async {
+        final wal = File('$localDbPath-wal');
+        if (await wal.exists() && await wal.length() > 0) {
+          throw StateError('The active database still has uncommitted WAL data.');
+        }
+        if (await wal.exists()) await wal.delete();
+        final shm = File('$localDbPath-shm');
+        if (await shm.exists()) await shm.delete();
+
+        await activeDbFile.copy(safetyBackupFile.path);
+        // Both files are on the same volume. Android replaces the file atomically.
+        await stageDbFile.rename(localDbPath);
+        try {
+          final restored = await openDatabase(localDbPath, readOnly: true);
+          try {
+            if (!await AppDatabase.instance.verifyIntegrity(restored)) {
+              throw StateError('The installed database failed its integrity check.');
+            }
+          } finally {
+            await restored.close();
+          }
+        } catch (_) {
+          retainRecoveryCopy = true;
+          await safetyBackupFile.rename(localDbPath);
+          retainRecoveryCopy = false;
+          rethrow;
+        }
+      });
 
       return RestoreResult(
         success: true,
@@ -766,28 +858,20 @@ class BackupService {
     } catch (e, stack) {
       AppLogger.e('Error during database restore', error: e, stackTrace: stack, tag: 'BackupService');
 
-      // Rollback to safety backup if active DB was modified
-      if (await safetyBackupFile.exists()) {
-        try {
-          await AppDatabase.instance.close();
-          await safetyBackupFile.copy(localDbPath);
-          final safetyWal = File('${safetyBackupFile.path}-wal');
-          if (await safetyWal.exists()) {
-            await safetyWal.copy('$localDbPath-wal');
-          }
-          final safetyShm = File('${safetyBackupFile.path}-shm');
-          if (await safetyShm.exists()) {
-            await safetyShm.copy('$localDbPath-shm');
-          }
-          await AppDatabase.instance.database;
-        } catch (_) {}
-      }
-
       return RestoreResult(
         success: false,
-        message: 'Restore operation failed. Active database preserved.',
-        errorMessage: '$e',
+        message: 'Restore operation failed.',
+        errorMessage: retainRecoveryCopy
+            ? '$e. Recovery database saved at ${safetyBackupFile.path}.'
+            : '$e',
       );
+    } finally {
+      try {
+        await staged?.close();
+        if (!retainRecoveryCopy) await scratch.delete(recursive: true);
+      } catch (e) {
+        AppLogger.w('Could not clean up restore files', error: e, tag: 'BackupService');
+      }
     }
   }
 

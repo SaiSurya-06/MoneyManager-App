@@ -9,6 +9,7 @@ abstract class Planner {
 class GeminiPlanner implements Planner {
   @override
   Future<ExecutionPlan> plan(String query, ConversationMemory memory) async {
+    final today = DateTime.now().toIso8601String().substring(0, 10);
     final plannerPrompt = '''
 You are the Planner AI for a Financial Assistant.
 Your only job is to analyze the user's natural language question and current conversation memory, and generate a structured JSON Execution Plan conforming to the schema.
@@ -43,7 +44,7 @@ User Question: "$query"
 Instructions:
 1. Ensure the output is strictly valid JSON conforming to the schema above.
 2. Return ONLY the JSON object. Do not include markdown wraps (like ```json), commentary, or extra text.
-3. Be precise with dates. Today is July 10, 2026.
+3. Be precise with dates. Today is $today in the device’s local timezone.
 4. Correctly classify entity-focused questions:
    - If the user asks for balance, account balance, total cash, or net worth, set responseType to "account_balance" and requiredTools to include ["account"].
    - If they ask for recent transactions, transaction history, or last payments, set responseType to "recent_transactions".

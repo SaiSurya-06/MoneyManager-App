@@ -1,4 +1,8 @@
+import 'package:flutter/foundation.dart';
+import 'package:sqflite/sqflite.dart' show DatabaseExecutor;
+
 import '../database.dart';
+import '../../analytics/recurrence_engine.dart';
 import '../../../models/transaction.dart';
 
 class TransactionDao {
@@ -6,194 +10,172 @@ class TransactionDao {
 
   Future<int> insertTransaction(Transaction tx) async {
     final db = await _dbProvider.database;
-    
-    return await db.transaction((txn) async {
-      // 1. Insert the transaction
+    return db.transaction((txn) async {
       final id = await txn.insert('transaction_log', tx.toMap());
-
-      // 2. Adjust account balance using exact integer minor units
-      final amtMinor = tx.amountMinorUnits;
-
-      if (tx.type == 'income') {
-        await txn.rawUpdate(
-          'UPDATE account SET balance_minor = balance_minor + ?, balance = (balance_minor + ?) / 100.0 WHERE id = ?',
-          [amtMinor, amtMinor, tx.accountId],
-        );
-      } else if (tx.type == 'expense') {
-        await txn.rawUpdate(
-          'UPDATE account SET balance_minor = balance_minor - ?, balance = (balance_minor - ?) / 100.0 WHERE id = ?',
-          [amtMinor, amtMinor, tx.accountId],
-        );
-        final ccTargetId = tx.transferToAccountId ?? _parseCreditCardTargetAccountId(tx.note);
-        if (ccTargetId != null) {
-          await txn.rawUpdate(
-            'UPDATE account SET balance_minor = balance_minor + ?, balance = (balance_minor + ?) / 100.0 WHERE id = ?',
-            [amtMinor, amtMinor, ccTargetId],
-          );
-        }
-      } else if (tx.type == 'transfer') {
-        await txn.rawUpdate(
-          'UPDATE account SET balance_minor = balance_minor - ?, balance = (balance_minor - ?) / 100.0 WHERE id = ?',
-          [amtMinor, amtMinor, tx.accountId],
-        );
-        final destAccountId = tx.transferToAccountId ?? _parseDestAccountId(tx.note);
-        if (destAccountId != null) {
-          await txn.rawUpdate(
-            'UPDATE account SET balance_minor = balance_minor + ?, balance = (balance_minor + ?) / 100.0 WHERE id = ?',
-            [amtMinor, amtMinor, destAccountId],
-          );
-        }
-      }
-
+      await _adjustBalances(txn, tx, 1);
       return id;
     });
   }
 
-  Future<int> updateTransaction(Transaction newTx, Transaction oldTx) async {
+  Future<bool> postDueRecurrences(DateTime today) async {
     final db = await _dbProvider.database;
+    return db.transaction((txn) async {
+      final templates = await txn.query(
+        'transaction_log',
+        where: "recurrence != 'none' AND parent_id IS NULL",
+      );
+      var posted = false;
+      for (final row in templates) {
+        final template = Transaction.fromMap(row);
+        final templateId = template.id!;
+        final postedRows = await txn.query(
+          'transaction_log',
+          columns: ['recurrence_scheduled_date'],
+          where: 'recurrence_template_id = ?',
+          whereArgs: [templateId],
+        );
+        final postedDates = postedRows
+            .map((row) => row['recurrence_scheduled_date'] as String)
+            .toSet();
 
-    return await db.transaction((txn) async {
-      final oldMinor = oldTx.amountMinorUnits;
-      final newMinor = newTx.amountMinorUnits;
+        // Older builds recorded an identifying note, but used a drifting
+        // schedule. Preserve their history through the last known posting.
+        final legacyNote = 'Auto-posted recurring instance of "${template.title}".';
+        final legacyRows = await txn.query(
+          'transaction_log',
+          columns: ['date'],
+          where: "recurrence_template_id IS NULL AND recurrence = 'none' "
+              'AND parent_id IS NULL AND note = ? AND account_id = ? '
+              'AND category_id = ? AND amount_minor = ? AND type = ? AND date >= ?',
+          whereArgs: [
+            legacyNote, template.accountId, template.categoryId,
+            template.amountMinorUnits, template.type, row['date'],
+          ],
+          orderBy: 'date DESC',
+          limit: 1,
+        );
+        final legacyThrough =
+            legacyRows.isEmpty ? null : legacyRows.single['date'] as String;
 
-      // 1. Revert old transaction's balance adjustments
-      if (oldTx.type == 'income') {
-        await txn.rawUpdate(
-          'UPDATE account SET balance_minor = balance_minor - ?, balance = (balance_minor - ?) / 100.0 WHERE id = ?',
-          [oldMinor, oldMinor, oldTx.accountId],
-        );
-      } else if (oldTx.type == 'expense') {
-        await txn.rawUpdate(
-          'UPDATE account SET balance_minor = balance_minor + ?, balance = (balance_minor + ?) / 100.0 WHERE id = ?',
-          [oldMinor, oldMinor, oldTx.accountId],
-        );
-        final oldCcTargetId = oldTx.transferToAccountId ?? _parseCreditCardTargetAccountId(oldTx.note);
-        if (oldCcTargetId != null) {
-          await txn.rawUpdate(
-            'UPDATE account SET balance_minor = balance_minor - ?, balance = (balance_minor - ?) / 100.0 WHERE id = ?',
-            [oldMinor, oldMinor, oldCcTargetId],
-          );
-        }
-      } else if (oldTx.type == 'transfer') {
-        await txn.rawUpdate(
-          'UPDATE account SET balance_minor = balance_minor + ?, balance = (balance_minor + ?) / 100.0 WHERE id = ?',
-          [oldMinor, oldMinor, oldTx.accountId],
-        );
-        final destAccountId = oldTx.transferToAccountId ?? _parseDestAccountId(oldTx.note);
-        if (destAccountId != null) {
-          await txn.rawUpdate(
-            'UPDATE account SET balance_minor = balance_minor - ?, balance = (balance_minor - ?) / 100.0 WHERE id = ?',
-            [oldMinor, oldMinor, destAccountId],
-          );
-        }
-      }
+        for (final date in RecurrenceEngine.datesThrough(template, today)) {
+          final scheduledDate = date.toIso8601String().substring(0, 10);
+          if (postedDates.contains(scheduledDate) ||
+              (legacyThrough != null && scheduledDate.compareTo(legacyThrough) <= 0)) {
+            continue;
+          }
 
-      // 2. Apply new transaction's balance adjustments
-      if (newTx.type == 'income') {
-        await txn.rawUpdate(
-          'UPDATE account SET balance_minor = balance_minor + ?, balance = (balance_minor + ?) / 100.0 WHERE id = ?',
-          [newMinor, newMinor, newTx.accountId],
-        );
-      } else if (newTx.type == 'expense') {
-        await txn.rawUpdate(
-          'UPDATE account SET balance_minor = balance_minor - ?, balance = (balance_minor - ?) / 100.0 WHERE id = ?',
-          [newMinor, newMinor, newTx.accountId],
-        );
-        final newCcTargetId = newTx.transferToAccountId ?? _parseCreditCardTargetAccountId(newTx.note);
-        if (newCcTargetId != null) {
-          await txn.rawUpdate(
-            'UPDATE account SET balance_minor = balance_minor + ?, balance = (balance_minor + ?) / 100.0 WHERE id = ?',
-            [newMinor, newMinor, newCcTargetId],
+          final entry = template.copyWith(
+            id: null,
+            date: date,
+            note: template.note ?? legacyNote,
+            recurrence: 'none',
+            recurrenceEndDate: null,
+            createdAt: today,
           );
-        }
-      } else if (newTx.type == 'transfer') {
-        await txn.rawUpdate(
-          'UPDATE account SET balance_minor = balance_minor - ?, balance = (balance_minor - ?) / 100.0 WHERE id = ?',
-          [newMinor, newMinor, newTx.accountId],
-        );
-        final destAccountId = newTx.transferToAccountId ?? _parseDestAccountId(newTx.note);
-        if (destAccountId != null) {
-          await txn.rawUpdate(
-            'UPDATE account SET balance_minor = balance_minor + ?, balance = (balance_minor + ?) / 100.0 WHERE id = ?',
-            [newMinor, newMinor, destAccountId],
-          );
+          await txn.insert('transaction_log', {
+            ...entry.toMap(),
+            'recurrence_template_id': templateId,
+            'recurrence_scheduled_date': scheduledDate,
+          });
+          await _adjustBalances(txn, entry, 1);
+          posted = true;
         }
       }
+      return posted;
+    });
+  }
 
-      // 3. Update the transaction row
-      return await txn.update(
+  Future<int> updateTransaction(Transaction newTx, Transaction oldTx) async {
+    if (newTx.id == null || newTx.id != oldTx.id) {
+      throw ArgumentError('An edit must reference the same saved transaction.');
+    }
+
+    final db = await _dbProvider.database;
+    return db.transaction((txn) async {
+      final saved = await _getTransaction(txn, newTx.id!);
+      if (saved == null) return 0;
+
+      // Compare the persisted representation so date-only fields and rounded
+      // amounts are compared with the same precision as SQLite.
+      if (!mapEquals(saved.toMap(), Transaction.fromMap(oldTx.toMap()).toMap())) {
+        throw StateError('This transaction changed. Reopen it before editing.');
+      }
+
+      final count = await txn.update(
         'transaction_log',
         newTx.toMap(),
         where: 'id = ?',
         whereArgs: [newTx.id],
       );
+      if (count != 1) throw StateError('The transaction could not be updated.');
+      await _adjustBalances(txn, saved, -1);
+      await _adjustBalances(txn, newTx, 1);
+      return count;
     });
   }
 
   Future<int> deleteTransaction(Transaction tx) async {
+    final id = tx.id;
+    if (id == null) return 0;
+
     final db = await _dbProvider.database;
+    return db.transaction((txn) => _deleteTransaction(txn, id));
+  }
 
-    return await db.transaction((txn) async {
-      final amtMinor = tx.amountMinorUnits;
+  Future<int> _deleteTransaction(DatabaseExecutor db, int id) async {
+    final saved = await _getTransaction(db, id);
+    if (saved == null) return 0;
 
-      // 1. Revert balance adjustments
-      if (tx.type == 'income') {
-        await txn.rawUpdate(
-          'UPDATE account SET balance_minor = balance_minor - ?, balance = (balance_minor - ?) / 100.0 WHERE id = ?',
-          [amtMinor, amtMinor, tx.accountId],
-        );
-      } else if (tx.type == 'expense') {
-        await txn.rawUpdate(
-          'UPDATE account SET balance_minor = balance_minor + ?, balance = (balance_minor + ?) / 100.0 WHERE id = ?',
-          [amtMinor, amtMinor, tx.accountId],
-        );
-        final ccTargetId = tx.transferToAccountId ?? _parseCreditCardTargetAccountId(tx.note);
-        if (ccTargetId != null) {
-          await txn.rawUpdate(
-            'UPDATE account SET balance_minor = balance_minor - ?, balance = (balance_minor - ?) / 100.0 WHERE id = ?',
-            [amtMinor, amtMinor, ccTargetId],
-          );
+    await db.delete('transaction_log', where: 'parent_id = ?', whereArgs: [id]);
+    final count = await db.delete('transaction_log', where: 'id = ?', whereArgs: [id]);
+    if (count != 1) throw StateError('The transaction could not be deleted.');
+    await _adjustBalances(db, saved, -1);
+    return count;
+  }
+
+  Future<void> _adjustBalances(
+    DatabaseExecutor db,
+    Transaction tx,
+    int direction,
+  ) async {
+    // Split rows allocate the parent's amount across categories.
+    if (tx.parentId != null) return;
+
+    final amount = tx.amountMinorUnits * direction;
+    switch (tx.type) {
+      case 'income':
+        await _adjustAccount(db, tx.accountId, amount);
+        break;
+      case 'expense':
+      case 'transfer':
+        await _adjustAccount(db, tx.accountId, -amount);
+        final destination = tx.transferToAccountId ??
+            (tx.type == 'expense'
+                ? _parseCreditCardTargetAccountId(tx.note)
+                : _parseDestAccountId(tx.note));
+        if (destination != null) {
+          await _adjustAccount(db, destination, amount);
         }
-      } else if (tx.type == 'transfer') {
-        await txn.rawUpdate(
-          'UPDATE account SET balance_minor = balance_minor + ?, balance = (balance_minor + ?) / 100.0 WHERE id = ?',
-          [amtMinor, amtMinor, tx.accountId],
-        );
-        final destAccountId = tx.transferToAccountId ?? _parseDestAccountId(tx.note);
-        if (destAccountId != null) {
-          await txn.rawUpdate(
-            'UPDATE account SET balance_minor = balance_minor - ?, balance = (balance_minor - ?) / 100.0 WHERE id = ?',
-            [amtMinor, amtMinor, destAccountId],
-          );
-        }
-      }
+        break;
+    }
+  }
 
-      // 2. Delete child transactions
-      await txn.delete(
-        'transaction_log',
-        where: 'parent_id = ?',
-        whereArgs: [tx.id],
-      );
-
-      // 3. Delete transaction row
-      return await txn.delete(
-        'transaction_log',
-        where: 'id = ?',
-        whereArgs: [tx.id],
-      );
-    });
+  Future<void> _adjustAccount(DatabaseExecutor db, int id, int delta) async {
+    await db.rawUpdate(
+      'UPDATE account SET balance_minor = balance_minor + ?, '
+      'balance = (balance_minor + ?) / 100.0 WHERE id = ?',
+      [delta, delta, id],
+    );
   }
 
   Future<Transaction?> getTransaction(int id) async {
     final db = await _dbProvider.database;
-    final maps = await db.query(
-      'transaction_log',
-      where: 'id = ?',
-      whereArgs: [id],
-    );
+    return _getTransaction(db, id);
+  }
 
-    if (maps.isEmpty) return null;
-    return Transaction.fromMap(maps.first);
+  Future<Transaction?> _getTransaction(DatabaseExecutor db, int id) async {
+    final rows = await db.query('transaction_log', where: 'id = ?', whereArgs: [id]);
+    return rows.isEmpty ? null : Transaction.fromMap(rows.single);
   }
 
   Future<List<Transaction>> getAllTransactions() async {
@@ -238,48 +220,8 @@ class TransactionDao {
   Future<void> bulkDeleteTransactions(List<Transaction> txs) async {
     final db = await _dbProvider.database;
     await db.transaction((txn) async {
-      for (var tx in txs) {
-        final amtMinor = tx.amountMinorUnits;
-        if (tx.type == 'income') {
-          await txn.rawUpdate(
-            'UPDATE account SET balance_minor = balance_minor - ?, balance = (balance_minor - ?) / 100.0 WHERE id = ?',
-            [amtMinor, amtMinor, tx.accountId],
-          );
-        } else if (tx.type == 'expense') {
-          await txn.rawUpdate(
-            'UPDATE account SET balance_minor = balance_minor + ?, balance = (balance_minor + ?) / 100.0 WHERE id = ?',
-            [amtMinor, amtMinor, tx.accountId],
-          );
-          final ccTargetId = tx.transferToAccountId ?? _parseCreditCardTargetAccountId(tx.note);
-          if (ccTargetId != null) {
-            await txn.rawUpdate(
-              'UPDATE account SET balance_minor = balance_minor - ?, balance = (balance_minor - ?) / 100.0 WHERE id = ?',
-              [amtMinor, amtMinor, ccTargetId],
-            );
-          }
-        } else if (tx.type == 'transfer') {
-          await txn.rawUpdate(
-            'UPDATE account SET balance_minor = balance_minor + ?, balance = (balance_minor + ?) / 100.0 WHERE id = ?',
-            [amtMinor, amtMinor, tx.accountId],
-          );
-          final destAccountId = tx.transferToAccountId ?? _parseDestAccountId(tx.note);
-          if (destAccountId != null) {
-            await txn.rawUpdate(
-              'UPDATE account SET balance_minor = balance_minor - ?, balance = (balance_minor - ?) / 100.0 WHERE id = ?',
-              [amtMinor, amtMinor, destAccountId],
-            );
-          }
-        }
-        await txn.delete(
-          'transaction_log',
-          where: 'parent_id = ?',
-          whereArgs: [tx.id],
-        );
-        await txn.delete(
-          'transaction_log',
-          where: 'id = ?',
-          whereArgs: [tx.id],
-        );
+      for (final id in txs.map((tx) => tx.id).whereType<int>().toSet()) {
+        await _deleteTransaction(txn, id);
       }
     });
   }
