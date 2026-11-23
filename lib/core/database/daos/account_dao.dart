@@ -37,19 +37,31 @@ class AccountDao {
     }
   }
 
-  Future<int> updateAccount(Account account) async {
-    try {
-      final db = await _dbProvider.database;
-      final safeMap = await _filterToExistingColumns(db, 'account', account.toMap());
-      return await db.update(
-        'account',
-        safeMap,
-        where: 'id = ?',
-        whereArgs: [account.id],
-      );
-    } catch (e) {
-      throw Exception('AccountDao.updateAccount failed: $e');
-    }
+  Future<int> updateAccount(Account account, {bool updateBalance = false}) async {
+    final db = await _dbProvider.database;
+    return db.transaction((txn) async {
+      final values = account.toMap()
+        ..remove('initial_balance')
+        ..remove('initial_balance_minor')
+        ..remove('balance')
+        ..remove('balance_minor');
+      if (updateBalance) {
+        final id = account.id;
+        if (id == null) throw ArgumentError('A saved account is required.');
+        final ledger = await txn.query('transaction_log');
+        final net = AppDatabase.getNetTransactionsMinorForAccount(txn, id, ledger);
+        final opening = account.balanceMinorUnits - net;
+        values.addAll({
+          'balance': account.balanceMinorUnits / 100,
+          'balance_minor': account.balanceMinorUnits,
+          'initial_balance': opening / 100,
+          'initial_balance_minor': opening,
+        });
+      }
+      final safeMap = await _filterToExistingColumns(txn, 'account', values);
+      return txn.update('account', safeMap,
+          where: 'id = ?', whereArgs: [account.id]);
+    });
   }
 
   /// Checks the count of transactions associated with this account (both as primary and transfer target).

@@ -95,6 +95,32 @@ void main() {
     await db.close();
   });
 
+  test('account edits preserve opening balance and count ledger entries once', () async {
+    final date = DateTime(2026, 1, 1);
+    final account = Account(
+      name: 'Checking', type: 'Bank', balance: 100, icon: 'account_balance',
+      color: '#4CAF50', isShared: false, createdAt: date,
+    );
+    final id = await accountDao.insertAccount(account);
+    await transactionDao.insertTransaction(Transaction(
+      accountId: id, categoryId: 1, title: 'Expense', amount: 25,
+      type: 'expense', date: date, isPrivate: false, createdAt: date,
+    ));
+
+    // A form opened before the expense was posted may hold a stale balance.
+    await accountDao.updateAccount(account.copyWith(id: id, name: 'Renamed'));
+    await AppDatabase.instance.recalculateAllBalances(db);
+    expect((await accountDao.getAccount(id))!.balance, 75);
+    expect((await db.query('account')).single['initial_balance_minor'], 10000);
+
+    final saved = (await accountDao.getAccount(id))!;
+    await accountDao.updateAccount(saved.copyWith(balance: 80), updateBalance: true);
+    await AppDatabase.instance.recalculateAllBalances(db);
+    expect((await accountDao.getAccount(id))!.balance, 80);
+    expect((await db.query('account')).single['initial_balance_minor'], 10500);
+    expect(await db.query('transaction_log'), hasLength(1));
+  });
+
   test('account order persists, appends new accounts, and rejects a stale list',
       () async {
     final account = Account(

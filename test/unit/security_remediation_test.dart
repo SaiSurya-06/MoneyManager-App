@@ -30,6 +30,12 @@ void main() {
       isShared: false,
       createdAt: date,
     );
+    final archived = account.copyWith(
+      id: 2,
+      name: 'Archived household',
+      isShared: true,
+      isArchived: true,
+    );
     final transaction = Transaction(
       id: 1,
       accountId: 1,
@@ -41,13 +47,14 @@ void main() {
       isPrivate: false,
       createdAt: date,
     );
-    final accounts = _TestAccounts()..setAccount(account);
+    final accounts = _TestAccounts()..setAccounts([account, archived]);
     final container = ProviderContainer(overrides: [
       accountsProvider.overrideWith((ref) => accounts),
       authProvider.overrideWith((ref) => _TestAuth()),
       categoriesProvider.overrideWith(_TestCategories.new),
       transactionsProvider.overrideWith((ref) => _TestTransactions(ref, [
         transaction,
+        transaction.copyWith(id: 3, accountId: 2, title: 'Archived purchase'),
         transaction.copyWith(id: 2, title: 'Private purchase', isPrivate: true),
       ])),
     ]);
@@ -83,7 +90,7 @@ void main() {
       expect(empty['accounts'], isEmpty);
       expect(empty['transactions'], isEmpty);
 
-      accounts.setAccount(account.copyWith(isShared: true));
+      accounts.setAccounts([account.copyWith(isShared: true), archived]);
       expect(await host.syncNow(), isTrue);
       final shared = readSnapshot(uploads.last);
       expect(shared['accounts'], hasLength(1));
@@ -92,7 +99,7 @@ void main() {
 
       final peer = jsonEncode({
         'profile': {'name': 'Partner'},
-        'accounts': [],
+        'accounts': [archived.toMap()],
         'transactions': [],
       });
       final ciphertext = encryption.encrypt(peer, password, salt);
@@ -101,7 +108,12 @@ void main() {
         'encrypted': ciphertext,
         'signature': encryption.signSyncSnapshot(ciphertext, password, peerSender),
       });
-      expect(await host.syncNow(partnerJustJoined: true), isTrue);
+      final linking = host.syncNow(partnerJustJoined: true);
+      final progress = container.read(partnerSyncProvider);
+      expect(progress.partnerName, 'Waiting...');
+      expect(progress.isSyncing, isTrue);
+      expect(await linking, isTrue);
+      expect(container.read(partnerSyncProvider).partnerAccounts, isEmpty);
       expect(container.read(partnerSyncProvider).partnerAuthenticated, isTrue);
       expect(container.read(partnerSyncProvider).partnerName, 'Partner');
 
@@ -183,8 +195,8 @@ class _TestAccounts extends AccountsNotifier {
   @override
   Future<void> loadAccounts() async {}
 
-  void setAccount(Account account) {
-    state = AccountsState(accounts: [account]);
+  void setAccounts(List<Account> accounts) {
+    state = AccountsState(accounts: accounts);
   }
 }
 
