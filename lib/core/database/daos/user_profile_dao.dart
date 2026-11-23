@@ -25,13 +25,23 @@ class UserProfileDao {
       final db = await _dbProvider.database;
       return await db.update(
         'user_profile',
-        profile.toMap(),
+        profile.toMap()..remove('pin_hash'),
         where: 'id = ?',
         whereArgs: [profile.id],
       );
     } catch (e) {
       throw Exception('UserProfileDao.updateProfile failed: $e');
     }
+  }
+
+  Future<int> replacePinHash(int id, String previous, String replacement) async {
+    final db = await _dbProvider.database;
+    return db.update(
+      'user_profile',
+      {'pin_hash': replacement},
+      where: 'id = ? AND pin_hash = ?',
+      whereArgs: [id, previous],
+    );
   }
 
   Future<UserProfile?> getProfile() async {

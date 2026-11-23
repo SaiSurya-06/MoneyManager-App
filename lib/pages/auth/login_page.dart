@@ -43,8 +43,10 @@ class _LoginPageState extends ConsumerState<LoginPage> {
     }
   }
 
+  bool _verifyingPin = false;
+
   void _onKeypadTap(String key) {
-    if (_pin.length >= _pinLength) return;
+    if (_verifyingPin || _pin.length >= _pinLength) return;
 
     setState(() {
       _pin += key;
@@ -56,24 +58,23 @@ class _LoginPageState extends ConsumerState<LoginPage> {
   }
 
   void _onBackspace() {
-    if (_pin.isEmpty) return;
+    if (_verifyingPin || _pin.isEmpty) return;
     setState(() {
       _pin = _pin.substring(0, _pin.length - 1);
     });
   }
 
   Future<void> _verifyPin() async {
+    _verifyingPin = true;
     final success = await ref.read(authProvider.notifier).verifyPin(_pin);
-    if (success && mounted) {
+    if (!mounted) return;
+    _verifyingPin = false;
+    if (success) {
       ToastNotification.show(context, 'Welcome back!');
     } else {
-      setState(() {
-        _pin = '';
-      });
-      if (mounted) {
-        final error = ref.read(authProvider).errorMessage ?? 'Incorrect PIN. Try again.';
-        ToastNotification.show(context, error, isError: true);
-      }
+      setState(() => _pin = '');
+      final error = ref.read(authProvider).errorMessage ?? 'Incorrect PIN. Try again.';
+      ToastNotification.show(context, error, isError: true);
     }
   }
 
