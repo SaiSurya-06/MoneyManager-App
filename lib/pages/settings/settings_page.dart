@@ -1,5 +1,3 @@
-import 'dart:convert';
-import 'package:crypto/crypto.dart';
 import 'package:sqflite/sqflite.dart' show deleteDatabase;
 import 'package:path/path.dart' show join;
 import 'package:path_provider/path_provider.dart' show getApplicationDocumentsDirectory, getTemporaryDirectory;
@@ -130,7 +128,10 @@ class _SettingsPageState extends ConsumerState<SettingsPage> {
       barrierDismissible: false,
       builder: (context) {
         return _PinVerificationDialog(
-          correctPinHash: ref.read(authProvider).profile?.pinHash ?? '',
+          verify: (pin) => ref.read(authProvider.notifier).verifyPin(
+            pin, authenticateSession: false,
+          ),
+          errorMessage: () => ref.read(authProvider).errorMessage,
           onVerified: () {
             Navigator.pop(context); // Close PIN Dialog
             _deleteDatabase();
@@ -216,7 +217,10 @@ class _SettingsPageState extends ConsumerState<SettingsPage> {
       barrierDismissible: false,
       builder: (context) {
         return _PinVerificationDialog(
-          correctPinHash: ref.read(authProvider).profile?.pinHash ?? '',
+          verify: (pin) => ref.read(authProvider.notifier).verifyPin(
+            pin, authenticateSession: false,
+          ),
+          errorMessage: () => ref.read(authProvider).errorMessage,
           onVerified: () {
             Navigator.pop(context); // Close PIN Dialog
             _performWipeAndExit();
@@ -1384,11 +1388,13 @@ class _CurrencyPickerDialogState extends State<_CurrencyPickerDialog> {
 }
 
 class _PinVerificationDialog extends StatefulWidget {
-  final String correctPinHash;
+  final Future<bool> Function(String) verify;
+  final String? Function() errorMessage;
   final VoidCallback onVerified;
 
   const _PinVerificationDialog({
-    required this.correctPinHash,
+    required this.verify,
+    required this.errorMessage,
     required this.onVerified,
   });
 
@@ -1402,14 +1408,10 @@ class _PinVerificationDialogState extends State<_PinVerificationDialog> {
   bool _obscurePin = true;
   String? _errorMessage;
 
-  String _hashPin(String pin) {
-    final bytes = utf8.encode(pin);
-    final digest = sha256.convert(bytes);
-    return digest.toString();
-  }
+  bool _verifying = false;
 
   void _onKeypadTap(String key) {
-    if (_pin.length >= _pinLength) return;
+    if (_verifying || _pin.length >= _pinLength) return;
     setState(() {
       _pin += key;
       _errorMessage = null;
@@ -1421,23 +1423,26 @@ class _PinVerificationDialogState extends State<_PinVerificationDialog> {
   }
 
   void _onBackspace() {
-    if (_pin.isEmpty) return;
+    if (_verifying || _pin.isEmpty) return;
     setState(() {
       _pin = _pin.substring(0, _pin.length - 1);
       _errorMessage = null;
     });
   }
 
-  void _verifyPin() {
-    final inputHash = _hashPin(_pin);
-    if (inputHash == widget.correctPinHash) {
+  Future<void> _verifyPin() async {
+    setState(() => _verifying = true);
+    final verified = await widget.verify(_pin);
+    if (!mounted) return;
+    if (verified) {
       widget.onVerified();
-    } else {
-      setState(() {
-        _pin = '';
-        _errorMessage = 'Incorrect PIN. Verification failed.';
-      });
+      return;
     }
+    setState(() {
+      _verifying = false;
+      _pin = '';
+      _errorMessage = widget.errorMessage() ?? 'Could not verify your PIN.';
+    });
   }
 
   @override
