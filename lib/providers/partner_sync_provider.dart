@@ -904,7 +904,7 @@ class PartnerSyncNotifier extends StateNotifier<PartnerSyncState> {
   Future<void> _uploadSnapshot(Uri endpoint, String key, String payload) async {
     final uri = endpoint.replace(queryParameters: {
       ...endpoint.queryParameters,
-      'action': 'set',
+      'action': 'set_snapshot',
       'key': key,
     });
     final client = http.Client();

@@ -105,7 +105,7 @@ function doGet(e) {
 function doPost(e) {
   var params = (e && e.parameter) || {};
   var payload = e && e.postData && e.postData.contents;
-  if (params.action !== 'set' ||
+  if (params.action !== 'set_snapshot' ||
       !/^[a-zA-Z0-9_-]{1,128}$/.test(params.key || '') ||
       typeof payload !== 'string' || !/^[a-zA-Z0-9_-]+=*$/.test(payload)) {
     return ContentService.createTextOutput('error: invalid snapshot').setMimeType(ContentService.MimeType.TEXT);

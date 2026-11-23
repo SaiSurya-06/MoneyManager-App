@@ -150,7 +150,7 @@ app.post(['/', '/api', '/sync'], (req, res) => {
   const db = readJson(DATA_FILE);
   const versions = readJson(VERSION_FILE);
 
-  if (action === 'set') {
+  if (action === 'set_snapshot') {
     if (typeof key !== 'string' || !/^[a-zA-Z0-9_-]{1,128}$/.test(key) ||
         typeof value !== 'string' || !/^[a-zA-Z0-9_-]+=*$/.test(value)) {
       return res.status(400).send('Error: Invalid snapshot');

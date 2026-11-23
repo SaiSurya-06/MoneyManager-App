@@ -156,7 +156,7 @@ void main() {
           200,
         );
       }
-      if (parameters['action'] == 'set') {
+      if (parameters['action'] == 'set_snapshot') {
         postUploads++;
         expect(request.method, 'POST');
         expect(parameters.containsKey('val'), isFalse);
