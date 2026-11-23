@@ -8,6 +8,7 @@ import 'package:money_manager/models/category.dart';
 import 'package:money_manager/models/transaction.dart';
 
 void main() {
+  TestWidgetsFlutterBinding.ensureInitialized();
   group('Automated Monthly PDF Reports (F07)', () {
     late List<Transaction> transactions;
     late List<Account> accounts;

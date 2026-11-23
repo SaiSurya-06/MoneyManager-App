@@ -6,6 +6,7 @@ import 'package:money_manager/core/analytics/recurrence_engine.dart';
 import 'package:money_manager/core/backup/backup_service.dart';
 import 'package:money_manager/core/database/database.dart';
 import 'package:money_manager/core/database/daos/account_dao.dart';
+import 'package:money_manager/core/database/daos/category_dao.dart';
 import 'package:money_manager/core/database/daos/transaction_dao.dart';
 import 'package:money_manager/core/database/daos/user_profile_dao.dart';
 import 'package:money_manager/models/account.dart';
@@ -93,6 +94,51 @@ void main() {
 
   tearDown(() async {
     await db.close();
+  });
+
+  test('category deletion reassigns references without deleting ledger rows', () async {
+    await db.execute('PRAGMA foreign_keys = ON');
+    await db.execute('ALTER TABLE category ADD COLUMN parent_id INTEGER');
+    await db.execute('''
+      CREATE TABLE budget (
+        id INTEGER PRIMARY KEY, category_id INTEGER NOT NULL
+        REFERENCES category(id) ON DELETE CASCADE
+      )
+    ''');
+    await db.execute('CREATE TABLE transaction_template (id INTEGER PRIMARY KEY, category_id INTEGER)');
+    for (final (id, name, parent) in [(1, 'Other', null), (2, 'Dining', null), (3, 'Cafe', 2)]) {
+      await db.insert('category', {
+        'id': id, 'name': name, 'icon': 'wallet', 'color': '000000', 'parent_id': parent,
+      });
+    }
+    final date = DateTime(2026, 1, 1);
+    final account = await accountDao.insertAccount(Account(
+      name: 'Checking', type: 'Bank', balance: 100, icon: 'wallet',
+      color: '000000', isShared: false, createdAt: date,
+    ));
+    final id = await transactionDao.insertTransaction(Transaction(
+      accountId: account, categoryId: 2, title: 'Lunch', amount: 25,
+      type: 'expense', date: date, isPrivate: false, createdAt: date,
+    ));
+    await db.insert('budget', {'category_id': 2});
+    await db.insert('transaction_template', {'category_id': 2});
+    await db.execute('''
+      CREATE TRIGGER reject_category_delete BEFORE DELETE ON category
+      WHEN OLD.id = 2 BEGIN
+        SELECT RAISE(ABORT, 'simulated deletion failure');
+      END
+    ''');
+    await expectLater(CategoryDao().deleteCategory(2), throwsA(isA<DatabaseException>()));
+    expect((await transactionDao.getTransaction(id))!.categoryId, 2);
+    expect((await db.query('budget')).single['category_id'], 2);
+    expect((await db.query('transaction_template')).single['category_id'], 2);
+    await db.execute('DROP TRIGGER reject_category_delete');
+    expect(await CategoryDao().deleteCategory(2), 1);
+    expect((await transactionDao.getTransaction(id))!.categoryId, 1);
+    expect((await accountDao.getAccount(account))!.balance, 75);
+    expect((await db.query('budget')).single['category_id'], 1);
+    expect((await db.query('transaction_template')).single['category_id'], 1);
+    expect((await CategoryDao().getCategory(3))!.parentId, isNull);
   });
 
   test('account edits preserve opening balance and count ledger entries once', () async {

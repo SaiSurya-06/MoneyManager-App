@@ -1,0 +1,8 @@
+<?xml version="1.0" encoding="utf-8"?>
+<full-backup-content>
+    <exclude domain="root" path="app_flutter/money_manager.db" />
+    <exclude domain="root" path="app_flutter/money_manager.db-wal" />
+    <exclude domain="root" path="app_flutter/money_manager.db-shm" />
+    <exclude domain="root" path="app_flutter/money_manager.db-journal" />
+    <exclude domain="sharedpref" path="HomeWidgetPreferences.xml" />
+</full-backup-content>

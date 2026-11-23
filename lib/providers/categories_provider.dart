@@ -1,6 +1,5 @@
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../core/database/daos/category_dao.dart';
-import '../core/database/database.dart';
 import '../models/category.dart';
 import 'transactions_provider.dart';
 
@@ -70,19 +69,6 @@ class CategoriesNotifier extends StateNotifier<CategoriesState> {
 
   Future<bool> deleteCategory(int id) async {
     try {
-      final remaining = state.categories.where((c) => c.id != id).toList();
-      if (remaining.isEmpty) {
-        state = state.copyWith(errorMessage: 'Cannot delete the only remaining category.');
-        return false;
-      }
-      final fallbackId = remaining.first.id!;
-      
-      final db = await AppDatabase.instance.database;
-      // Reassign transactions to fallback
-      await db.update('transaction_log', {'category_id': fallbackId}, where: 'category_id = ?', whereArgs: [id]);
-      // Reassign budgets to fallback
-      await db.update('budget', {'category_id': fallbackId}, where: 'category_id = ?', whereArgs: [id]);
-
       final rowsDeleted = await _categoryDao.deleteCategory(id);
       if (rowsDeleted > 0) {
         await loadCategories();
