@@ -57,3 +57,6 @@ flutter:
     - assets/logo.png
     - assets/gas_sync_template.js
     - assets/user_guide.json
+    - assets/fonts/NotoSans-Regular.ttf
+    - assets/fonts/NotoSans-Bold.ttf
+    - assets/fonts/OFL-NotoSans.txt

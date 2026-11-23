@@ -29,16 +29,27 @@ class CategoryDao {
   }
 
   Future<int> deleteCategory(int id) async {
-    try {
-      final db = await _dbProvider.database;
-      return await db.delete(
-        'category',
-        where: 'id = ?',
-        whereArgs: [id],
-      );
-    } catch (e) {
-      throw Exception('CategoryDao.deleteCategory failed: $e');
-    }
+    final db = await _dbProvider.database;
+    return db.transaction((txn) async {
+      final rows = await txn.query('category', columns: ['id', 'parent_id'], orderBy: 'id ASC');
+      if (!rows.any((row) => row['id'] == id)) return 0;
+      final remaining = rows.where((row) => row['id'] != id).toList();
+      if (remaining.isEmpty) {
+        throw StateError('Cannot delete the only remaining category.');
+      }
+      final roots = remaining.where((row) => row['parent_id'] == null);
+      final fallbackId = (roots.isEmpty ? remaining.first : roots.first)['id'] as int;
+
+      for (final table in ['transaction_log', 'budget', 'transaction_template']) {
+        await txn.update(table, {'category_id': fallbackId},
+            where: 'category_id = ?', whereArgs: [id]);
+      }
+      await txn.update('transaction_log', {'subcategory_id': null},
+          where: 'subcategory_id = ?', whereArgs: [id]);
+      await txn.update('category', {'parent_id': null},
+          where: 'parent_id = ?', whereArgs: [id]);
+      return txn.delete('category', where: 'id = ?', whereArgs: [id]);
+    });
   }
 
   Future<Category?> getCategory(int id) async {

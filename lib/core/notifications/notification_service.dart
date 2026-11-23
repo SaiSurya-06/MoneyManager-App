@@ -305,6 +305,15 @@ class NotificationService {
     }
   }
 
+  static List<DateTime> monthEndReminderDates(DateTime now) {
+    final dates = <DateTime>[];
+    for (var offset = 0; dates.length < 12; offset++) {
+      final date = DateTime(now.year, now.month + offset + 1, 0, 18);
+      if (date.isAfter(now)) dates.add(date);
+    }
+    return dates;
+  }
+
   Future<void> scheduleMonthEndBudgetReminder() async {
     try {
       const AndroidNotificationDetails androidDetails = AndroidNotificationDetails(
@@ -319,27 +328,20 @@ class NotificationService {
         android: androidDetails,
       );
 
-      final now = DateTime.now();
-      final lastDay = DateTime(now.year, now.month + 1, 0);
-      DateTime targetLocal = DateTime(lastDay.year, lastDay.month, lastDay.day, 18, 0);
-      if (targetLocal.isBefore(now)) {
-        final nextMonthLastDay = DateTime(now.year, now.month + 2, 0);
-        targetLocal = DateTime(nextMonthLastDay.year, nextMonthLastDay.month, nextMonthLastDay.day, 18, 0);
+      // Remove the former repeating day-of-month alarm.
+      await _localNotificationsPlugin.cancel(303);
+      final dates = monthEndReminderDates(DateTime.now());
+      for (var index = 0; index < dates.length; index++) {
+        await _localNotificationsPlugin.zonedSchedule(
+          3100 + index,
+          '📅 Plan Your Budget',
+          'The month is ending! Plan your budget splits and category limits now in the Money Map.',
+          tz.TZDateTime.from(dates[index].toUtc(), tz.UTC),
+          platformDetails,
+          androidScheduleMode: AndroidScheduleMode.inexactAllowWhileIdle,
+          uiLocalNotificationDateInterpretation: UILocalNotificationDateInterpretation.absoluteTime,
+        );
       }
-      
-      final targetUtc = targetLocal.toUtc();
-      final scheduledDate = tz.TZDateTime.from(targetUtc, tz.getLocation('UTC'));
-
-      await _localNotificationsPlugin.zonedSchedule(
-        303,
-        '📅 Plan Your Budget',
-        "The month is ending! Plan your budget splits and category limits now in the Money Map.",
-        scheduledDate,
-        platformDetails,
-        androidScheduleMode: AndroidScheduleMode.inexactAllowWhileIdle,
-        uiLocalNotificationDateInterpretation: UILocalNotificationDateInterpretation.absoluteTime,
-        matchDateTimeComponents: DateTimeComponents.dayOfMonthAndTime,
-      );
     } catch (e, stack) {
       print('[NotificationService] scheduleMonthEndBudgetReminder error: $e\n$stack');
     }

@@ -1,6 +1,7 @@
 import 'dart:io';
 import 'dart:typed_data';
 import 'package:crypto/crypto.dart';
+import 'package:flutter/services.dart' show rootBundle;
 import 'package:intl/intl.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:pdf/pdf.dart';
@@ -15,6 +16,14 @@ import '../../models/account.dart';
 import '../../models/budget.dart';
 import '../../models/category.dart';
 import '../../models/transaction.dart';
+
+Future<pw.Document> _createReportDocument() async {
+  final regular = await rootBundle.load('assets/fonts/NotoSans-Regular.ttf');
+  final bold = await rootBundle.load('assets/fonts/NotoSans-Bold.ttf');
+  return pw.Document(
+    theme: pw.ThemeData.withFont(base: pw.Font.ttf(regular), bold: pw.Font.ttf(bold)),
+  );
+}
 
 class MonthlyReportRecord {
   final int? id;
@@ -228,7 +237,7 @@ class MonthlyPdfReportService {
     required List<Category> categories,
     required String currency,
   }) async {
-    final pdf = pw.Document();
+    final pdf = await _createReportDocument();
     final parts = monthStr.split('-');
     final year = int.tryParse(parts[0]) ?? DateTime.now().year;
     final month = int.tryParse(parts[1]) ?? DateTime.now().month;
@@ -444,7 +453,7 @@ class MonthlyPdfReportService {
     required List<Category> categories,
     required String currency,
   }) async {
-    final pdf = pw.Document();
+    final pdf = await _createReportDocument();
     final parts = monthStr.split('-');
     final year = int.tryParse(parts[0]) ?? DateTime.now().year;
     final month = int.tryParse(parts[1]) ?? DateTime.now().month;

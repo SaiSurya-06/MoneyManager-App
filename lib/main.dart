@@ -30,7 +30,7 @@ void main() async {
 
     await NotificationService.instance.initialize();
     await NotificationService.instance.scheduleWeeklyBackupReminder();
-    await NotificationService.instance.scheduleMonthEndBudgetReminder();
+    unawaited(NotificationService.instance.scheduleMonthEndBudgetReminder());
 
     // Check and generate previous month PDF reports if missing (catch-up / fallback)
     unawaited(MonthlyPdfReportService.instance.checkAndGeneratePreviousMonthReports());
