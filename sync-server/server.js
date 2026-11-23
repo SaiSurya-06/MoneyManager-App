@@ -70,17 +70,13 @@ function verifyAuth(key, token) {
   return auths[key] === hash;
 }
 
-// Health check
-app.get('/', (req, res) => {
-  const { action } = req.query;
-  if (action === 'test') {
-    return res.send('ok');
-  }
-  res.send('ok');
-});
+function healthResponse(req, res) {
+  return res.send(req.query.client === '2' ? 'ok:post-v1' : 'ok');
+}
 
 // Get data (full or incremental by version)
 app.get('/sync', (req, res) => {
+  if (req.query.action === 'test') return healthResponse(req, res);
   const { key, since_version, auth_token } = req.query;
   if (!key) return res.status(400).send('Error: Missing key parameter');
 
@@ -111,9 +107,9 @@ app.get('/sync', (req, res) => {
 });
 
 // Backward compatibility endpoint for GET /?action=get
-app.get('/api', (req, res) => {
+app.get(['/', '/api'], (req, res) => {
   const { action, key, since_version, auth_token } = req.query;
-  if (action === 'test') return res.send('ok');
+  if (action === 'test') return healthResponse(req, res);
   if (action === 'get' || key) {
     if (!key) return res.status(400).send('Error: Missing key parameter');
     if (!verifyAuth(key, auth_token)) {
@@ -140,7 +136,7 @@ app.get('/api', (req, res) => {
 });
 
 // Set data (full or chunked)
-app.post('/', (req, res) => {
+app.post(['/', '/api', '/sync'], (req, res) => {
   const { key, action, auth_token, checksum } = req.query;
   const value = req.body;
 
@@ -153,6 +149,25 @@ app.post('/', (req, res) => {
 
   const db = readJson(DATA_FILE);
   const versions = readJson(VERSION_FILE);
+
+  if (action === 'set') {
+    if (typeof key !== 'string' || !/^[a-zA-Z0-9_-]{1,128}$/.test(key) ||
+        typeof value !== 'string' || !/^[a-zA-Z0-9_-]+=*$/.test(value)) {
+      return res.status(400).send('Error: Invalid snapshot');
+    }
+    db[key] = value;
+    try {
+      const staged = DATA_FILE + '.tmp';
+      fs.writeFileSync(staged, JSON.stringify(db), 'utf8');
+      fs.renameSync(staged, DATA_FILE);
+    } catch (err) {
+      console.error('Unable to save sync snapshot:', err.code);
+      return res.status(500).send('Error: Could not save snapshot');
+    }
+    versions[key] = (versions[key] || 0) + 1;
+    writeJson(VERSION_FILE, versions);
+    return res.send('assembled');
+  }
 
   // Chunk assembly
   if (action === 'set_chunk') {

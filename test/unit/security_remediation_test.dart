@@ -61,12 +61,16 @@ void main() {
     addTearDown(container.dispose);
 
     var failUpload = true;
+    var supportsPost = false;
+    var legacyUploads = 0;
+    var postUploads = 0;
+    var receipts = 0;
     var peerSnapshot = '404';
     final uploads = <Map<String, dynamic>>[];
     final encryption = EncryptionService.instance;
     await http.runWithClient(() async {
       final host = container.read(partnerSyncProvider.notifier);
-      const endpoint = 'https://sharing.example.test/exec';
+      const endpoint = 'https://script.google.com/macros/s/test/exec';
 
       expect(await host.generateInviteCode(endpoint), isNull);
       expect(container.read(partnerSyncProvider).isConnected, isFalse);
@@ -96,6 +100,18 @@ void main() {
       expect(shared['accounts'], hasLength(1));
       final transactions = shared['transactions'] as List;
       expect(transactions.single['t'], transaction.title);
+
+      final legacyCount = legacyUploads;
+      supportsPost = true;
+      expect(await host.syncNow(), isTrue);
+      expect(postUploads, 1);
+      expect(receipts, 1);
+      expect(readSnapshot(uploads.last)['accounts'], shared['accounts']);
+      failUpload = true;
+      expect(await host.syncNow(), isFalse);
+      expect(postUploads, 2);
+      expect(legacyUploads, legacyCount);
+      failUpload = false;
 
       final peer = jsonEncode({
         'profile': {'name': 'Partner'},
@@ -127,8 +143,31 @@ void main() {
 
     }, () => MockClient((request) async {
       final parameters = request.url.queryParameters;
-      if (parameters['action'] == 'test') return http.Response('ok', 200);
+      if (request.url.host == 'script.googleusercontent.com') {
+        expect(request.method, 'GET');
+        expect(request.body, isEmpty);
+        expect(parameters, isEmpty);
+        receipts++;
+        return http.Response('assembled', 200);
+      }
+      if (parameters['action'] == 'test') {
+        return http.Response(
+          supportsPost && parameters['client'] == '2' ? 'ok:post-v1' : 'ok',
+          200,
+        );
+      }
+      if (parameters['action'] == 'set') {
+        postUploads++;
+        expect(request.method, 'POST');
+        expect(parameters.containsKey('val'), isFalse);
+        if (failUpload) return http.Response('error: could not save snapshot', 200);
+        uploads.add(ShareCodeEncoder.decode(request.body));
+        return http.Response('', 302, headers: {
+          'location': 'https://script.googleusercontent.com/receipt',
+        });
+      }
       if (parameters['action'] == 'get') return http.Response(peerSnapshot, 200);
+      legacyUploads++;
       expect(parameters['action'], 'set_chunk');
       if (failUpload) return http.Response('<html>Unavailable</html>', 200);
       expect(parameters['total'], '1');
