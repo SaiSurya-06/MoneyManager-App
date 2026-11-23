@@ -8,7 +8,8 @@ function doGet(e) {
     
     // Quick health-check: runs without locks for instant response
     if (action === 'test') {
-      return ContentService.createTextOutput('ok').setMimeType(ContentService.MimeType.TEXT);
+      return ContentService.createTextOutput(params.client === '2' ? 'ok:post-v1' : 'ok')
+        .setMimeType(ContentService.MimeType.TEXT);
     }
     
     var sheet = getOrCreateSheet();
@@ -98,6 +99,29 @@ function doGet(e) {
     return ContentService.createTextOutput('error: unknown action: ' + action).setMimeType(ContentService.MimeType.TEXT);
   } catch (err) {
     return ContentService.createTextOutput('error: ' + err.toString()).setMimeType(ContentService.MimeType.TEXT);
+  }
+}
+
+function doPost(e) {
+  var params = (e && e.parameter) || {};
+  var payload = e && e.postData && e.postData.contents;
+  if (params.action !== 'set_snapshot' ||
+      !/^[a-zA-Z0-9_-]{1,128}$/.test(params.key || '') ||
+      typeof payload !== 'string' || !/^[a-zA-Z0-9_-]+=*$/.test(payload)) {
+    return ContentService.createTextOutput('error: invalid snapshot').setMimeType(ContentService.MimeType.TEXT);
+  }
+  var lock = LockService.getScriptLock();
+  if (!lock.tryLock(25000)) {
+    return ContentService.createTextOutput('error: server busy, please retry').setMimeType(ContentService.MimeType.TEXT);
+  }
+  try {
+    setValueByKey(getOrCreateSheet(), params.key, payload);
+    SpreadsheetApp.flush();
+    return ContentService.createTextOutput('assembled').setMimeType(ContentService.MimeType.TEXT);
+  } catch (err) {
+    return ContentService.createTextOutput('error: could not save snapshot').setMimeType(ContentService.MimeType.TEXT);
+  } finally {
+    lock.releaseLock();
   }
 }
 
@@ -195,10 +219,7 @@ function setValueByKey(sheet, key, value, keysToDelete) {
     deleteMap[keysToDelete[d]] = true;
   }
   
-  // Also delete any existing multi-part keys for this key
-  for (var p = 0; p < 20; p++) {
-    deleteMap[key + '__p' + p] = true;
-  }
+  var partPrefix = key + '__p';
   deleteMap[key] = true;
   
   var newRows = [];
@@ -211,7 +232,7 @@ function setValueByKey(sheet, key, value, keysToDelete) {
   // Filter out deleted / updated rows in memory
   for (var r = 1; r < data.length; r++) {
     var k = String(data[r][0]);
-    if (!deleteMap[k]) {
+    if (!deleteMap[k] && !(k.indexOf(partPrefix) === 0 && /^\d+$/.test(k.slice(partPrefix.length)))) {
       newRows.push(data[r]);
     }
   }
@@ -229,7 +250,13 @@ function setValueByKey(sheet, key, value, keysToDelete) {
     newRows.push([key, "'" + strVal, dateStr]);
   }
   
-  // Atomic single-call write to Google Sheets
-  sheet.clearContents();
+  // Replace the rows in one write so readers never see a cleared sheet.
+  while (newRows.length < data.length) {
+    newRows.push(['', '', '']);
+  }
+  var maxRows = sheet.getMaxRows();
+  if (newRows.length > maxRows) {
+    sheet.insertRowsAfter(maxRows, newRows.length - maxRows);
+  }
   sheet.getRange(1, 1, newRows.length, 3).setNumberFormat('@').setValues(newRows);
 }

@@ -422,12 +422,13 @@ class PartnerSyncNotifier extends StateNotifier<PartnerSyncState> {
       final baseUri = Uri.parse(cleanedUrl);
       final queryParams = Map<String, dynamic>.from(baseUri.queryParameters);
       queryParams['action'] = 'test';
+      queryParams['client'] = '2';
       final uri = baseUri.replace(queryParameters: queryParams);
 
       final response = await http.get(uri).timeout(const Duration(seconds: 10));
       if (response.statusCode == 200) {
         final body = response.body.trim();
-        if (body == 'ok') {
+        if (body == 'ok' || body == 'ok:post-v1') {
           state = state.copyWith(errorMessage: null);
           return true;
         } else if (body.contains('<!DOCTYPE') || body.contains('<html') || body.contains('accounts.google.com')) {
@@ -886,8 +887,68 @@ class PartnerSyncNotifier extends StateNotifier<PartnerSyncState> {
     return chunks;
   }
 
+  Future<bool> _supportsPostUploads(Uri endpoint) async {
+    final response = await http.get(endpoint.replace(queryParameters: {
+      ...endpoint.queryParameters,
+      'action': 'test',
+      'client': '2',
+    })).timeout(const Duration(seconds: 10));
+    final responseText = response.body.trim();
+    if (response.statusCode == 200) {
+      if (responseText == 'ok:post-v1') return true;
+      if (responseText == 'ok') return false;
+    }
+    throw StateError('Could not verify the partner server upload protocol.');
+  }
+
+  Future<void> _uploadSnapshot(Uri endpoint, String key, String payload) async {
+    final uri = endpoint.replace(queryParameters: {
+      ...endpoint.queryParameters,
+      'action': 'set_snapshot',
+      'key': key,
+    });
+    final client = http.Client();
+    try {
+      final request = http.Request('POST', uri)
+        ..followRedirects = false
+        ..headers['content-type'] = 'text/plain; charset=utf-8'
+        ..body = payload;
+      var response = await client.send(request).timeout(const Duration(seconds: 60));
+      // Apps Script ContentService returns the result at a one-time GET URL.
+      if (response.statusCode == 302 || response.statusCode == 303) {
+        final location = response.headers['location'];
+        final redirect = location == null ? null : uri.resolve(location);
+        if (uri.host != 'script.google.com' ||
+            redirect == null ||
+            redirect.scheme != 'https' ||
+            redirect.host != 'script.googleusercontent.com' ||
+            redirect.userInfo.isNotEmpty ||
+            redirect.port != 443) {
+          throw StateError('Unexpected redirect from the partner server.');
+        }
+        await response.stream.drain<void>().timeout(const Duration(seconds: 15));
+        final follow = http.Request('GET', redirect)..followRedirects = false;
+        response = await client.send(follow).timeout(const Duration(seconds: 30));
+      }
+      final body = await response.stream.bytesToString().timeout(const Duration(seconds: 30));
+      if (response.statusCode != 200 || body.trim() != 'assembled') {
+        throw StateError('The partner server did not confirm the snapshot upload.');
+      }
+    } finally {
+      client.close();
+    }
+  }
+
   Future<void> _uploadData(String payload) async {
     final key = '${state.roomCode}__${state.mySlot}_data';
+    final endpoint = Uri.parse(state.webAppUrl);
+    if (await _supportsPostUploads(endpoint)) {
+      state = state.copyWith(syncStatusMessage: 'Uploading partner snapshot...');
+      await _uploadSnapshot(endpoint, key, payload);
+      return;
+    }
+
+    // Older Apps Script deployments acknowledge only GET chunk uploads.
     // Payload is already base64url-encoded (URL-safe, no special chars).
     // GAS GET URL limit ~8192 chars; key+params ~100 chars, so 3000 chars/chunk is safe and cuts HTTP requests in half.
     final chunks = _splitIntoChunks(payload, 3000);
@@ -969,9 +1030,7 @@ class PartnerSyncNotifier extends StateNotifier<PartnerSyncState> {
     final queryParams = Map<String, dynamic>.from(baseUri.queryParameters);
     queryParams['action'] = 'get';
     queryParams['key'] = key;
-    if (state.partnerVersion > 0) {
-      queryParams['since_version'] = '${state.partnerVersion}';
-    }
+    queryParams.remove('since_version');
     final uri = baseUri.replace(queryParameters: queryParams);
 
     state = state.copyWith(

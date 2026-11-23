@@ -14,7 +14,7 @@ Google Apps Script runs in the Google Cloud for free under your own Google accou
 
 1. Open [Google Apps Script](https://script.google.com/) and log in with your Google account.
 2. Click **New Project**.
-3. Open `gas.js` in this directory, copy its entire contents, and paste them into the script editor (replacing any existing code).
+3. Open `assets/gas_sync_template.js` from the repository root, copy its entire contents, and paste them into the script editor (replacing any existing code).
 4. Click the **Save** (floppy disk) icon.
 5. Click **Deploy** -> **New Deployment**.
 6. Select **Web App** as the deployment type (click the gear icon to select it if not shown).
@@ -42,3 +42,8 @@ You can host the Node.js Express server on any free hosting service (like Render
    npm start
    ```
 4. Expose the server (using localtunnel or ngrok if testing across networks) and use the endpoint URL in the app settings.
+
+
+## Updating an existing Apps Script deployment
+
+Use **Deploy → Manage deployments → Edit → New version** to install the bundled template on your existing deployment URL. New clients use POST for writes when the server advertises support. Existing Apps Script deployments and apps continue using the legacy chunk requests.
