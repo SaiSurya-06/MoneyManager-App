@@ -1000,6 +1000,31 @@ class _PartnersPageState extends ConsumerState<PartnersPage> with SingleTickerPr
   Widget _buildActiveLayout(PartnerSyncState syncState, bool isDark, Color cardBg, Color textColor, Color subTextColor) {
     // If hosting and partner has not joined yet, show the onboarding room info
     if (syncState.mySlot == 'A' && syncState.partnerName == 'Waiting...') {
+      if (syncState.isSyncing) {
+        return Center(
+          child: Padding(
+            padding: const EdgeInsets.all(24),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                const Icon(Icons.link_rounded, size: 40),
+                const SizedBox(height: 16),
+                Text('Linking with your partner', style: Theme.of(context).textTheme.titleLarge),
+                const SizedBox(height: 12),
+                LinearProgressIndicator(
+                  value: syncState.syncProgress > 0 ? syncState.syncProgress : null,
+                  semanticsLabel: 'Partner linking progress',
+                ),
+                const SizedBox(height: 12),
+                Text(
+                  syncState.syncStatusMessage ?? 'Connecting…',
+                  textAlign: TextAlign.center,
+                ),
+              ],
+            ),
+          ),
+        );
+      }
       final localInviteCode = _generatedInviteCode ?? 
           ShareCodeEncoder.encode({
             'url': syncState.webAppUrl,

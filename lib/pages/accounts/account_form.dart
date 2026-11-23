@@ -4,7 +4,7 @@ import '../../../models/account.dart';
 import '../../../providers/accounts_provider.dart';
 import '../../../providers/auth_provider.dart';
 import '../../../widgets/common/toast_notification.dart';
-import 'account_card.dart';
+import 'account_form_preview.dart';
 
 class AccountForm extends ConsumerStatefulWidget {
   final Account? account;
@@ -114,13 +114,15 @@ class _AccountFormState extends ConsumerState<AccountForm> {
         balance: balance,
         icon: _selectedIcon,
         color: _selectedColor,
-        isShared: true,
         limitAmount: limit,
         billingCycleStartDay: billingStart,
         statementDueDay: statementDue,
         minimumDue: minimumDue,
       );
-      success = await ref.read(accountsProvider.notifier).updateAccount(updated);
+      success = await ref.read(accountsProvider.notifier).updateAccount(
+        updated,
+        updateBalance: updated.balanceMinorUnits != widget.account!.balanceMinorUnits,
+      );
     }
 
     if (success && mounted) {
@@ -283,11 +285,7 @@ class _AccountFormState extends ConsumerState<AccountForm> {
               const SizedBox(height: 16),
 
               // Dynamic Card Preview
-              AccountCard(
-                account: previewAccount,
-                currency: currency,
-                onTap: () {},
-              ),
+              AccountFormPreview(account: previewAccount, currency: currency),
               const SizedBox(height: 20),
 
               // Name Field

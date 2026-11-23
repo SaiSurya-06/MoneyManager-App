@@ -117,11 +117,15 @@ class AccountsNotifier extends StateNotifier<AccountsState> {
     }
   }
 
-  Future<bool> updateAccount(Account account) async {
+  Future<bool> updateAccount(Account account, {bool updateBalance = false}) async {
     try {
-      await _accountDao.updateAccount(account);
+      final count = await _accountDao.updateAccount(account, updateBalance: updateBalance);
+      if (count == 0) return false;
       await loadAccounts();
-      await AppDatabase.queueSyncAction('update', 'account', account.id!, account.toMap());
+      final saved = await _accountDao.getAccount(account.id!);
+      if (saved != null) {
+        await AppDatabase.queueSyncAction('update', 'account', account.id!, saved.toMap());
+      }
       return true;
     } catch (e) {
       state = state.copyWith(errorMessage: 'Failed to update account: $e');

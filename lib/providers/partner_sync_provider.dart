@@ -312,7 +312,7 @@ class PartnerSyncNotifier extends StateNotifier<PartnerSyncState> {
           partnerName: data['partnerName'] as String? ?? '',
           partnerCurrency: data['partnerCurrency'] as String? ?? 'USD',
           partnerTheme: data['partnerTheme'] as String? ?? 'dark',
-          partnerAccounts: accountsList,
+          partnerAccounts: accountsList.where((account) => !account.isArchived).toList(),
           partnerTransactions: txList,
           lastSyncTime: data['lastSyncTime'] != null
               ? DateTime.tryParse(data['lastSyncTime'] as String)
@@ -350,8 +350,7 @@ class PartnerSyncNotifier extends StateNotifier<PartnerSyncState> {
         if (state.isSyncing) return; // don't overlap
 
         final partnerArrived = await _checkPartnerDataExists();
-        if (partnerArrived) {
-          timer.cancel();
+        if (partnerArrived && mounted && timer.isActive && !state.isSyncing) {
           AppLogger.i('Partner data detected — starting full sync.', tag: 'PartnerSync');
           // Full sync with flag to bypass the "Waiting..." guard
           await syncNow(partnerJustJoined: true);
@@ -662,6 +661,7 @@ class PartnerSyncNotifier extends StateNotifier<PartnerSyncState> {
 
         final accountsList = (decoded['accounts'] as List? ?? [])
             .map((a) => Account.fromMap(a as Map<String, dynamic>))
+            .where((account) => !account.isArchived)
             .toList();
 
         final txList = (decoded['transactions'] as List? ?? [])
@@ -770,7 +770,7 @@ class PartnerSyncNotifier extends StateNotifier<PartnerSyncState> {
         final localAccounts = _ref.read(accountsProvider).accounts;
         final matchingLocal = localAccounts.firstWhere((a) => a.name == conflict.name);
         final updatedAccount = partnerAccount.copyWith(id: matchingLocal.id);
-        await _ref.read(accountsProvider.notifier).updateAccount(updatedAccount);
+        await _ref.read(accountsProvider.notifier).updateAccount(updatedAccount, updateBalance: true);
       }
     }
     // Perform manual sync to push the resolved state
@@ -787,7 +787,7 @@ class PartnerSyncNotifier extends StateNotifier<PartnerSyncState> {
     final currency = profile?.preferredCurrency ?? 'USD';
     final themePref = profile?.themePreference ?? 'dark';
 
-    final sharedAccounts = accounts.where((account) => account.isShared).toList();
+    final sharedAccounts = accounts.where((account) => account.isShared && !account.isArchived).toList();
     final sharedAccountIds = sharedAccounts.map((a) => a.id).toSet();
 
     // Map categories for details
